@@ -33,7 +33,9 @@
 #define IMAGE_WINDOW_GTK_H_
 #define SHL_IMAGE_WINDOW_GTK_BASE_VERSION   1
 
-#include <stdio.h>
+#include <cstdio>
+#include <algorithm>
+#include <vector>
 #include <queue>
 #include <mutex>
 #include <thread>
@@ -50,11 +52,23 @@ namespace shl
 #define SHL_BASE_GTK_CLASS_VERSION  SHL_IMAGE_WINDOW_GTK_BASE_VERSION
 
   // ---------------------------------------------------------------------------
+  //	GTK_BaseWindowFactoryInterface class
+  // ---------------------------------------------------------------------------
+  class GTK_BaseWindowFactoryInterface
+  {
+  public:
+    virtual Gtk::Window *create_window() = 0;
+    virtual Gtk::Window *get_window() = 0;
+    virtual void delete_window() = 0;
+  };
+
+  // ---------------------------------------------------------------------------
   //	BaseAppGTK class
   // ---------------------------------------------------------------------------
   class GTK_BaseApp : public Gtk::Application
   {
   protected:
+    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // GTK_BaseApp
     // -------------------------------------------------------------------------
@@ -69,95 +83,134 @@ namespace shl
     // -------------------------------------------------------------------------
     // on_activate
     // -------------------------------------------------------------------------
-    virtual void on_activate()
+    void on_activate() override
     {
       // The application has been started, so let's show a window.
-      process_added_windows();
+      process_create_windows();
     }
     // -------------------------------------------------------------------------
-    // add_app_window
+    // create_window
     // -------------------------------------------------------------------------
-    void add_app_window(Gtk::Window *in_window)
+    void create_window(GTK_BaseWindowFactoryInterface *in_interface)
     {
-      std::lock_guard<std::mutex> lock(m_add_win_queue_mutex);
-      m_add_win_queue.push(in_window);
+      std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
+      m_create_win_queue.push(in_interface);
+    }
+    // -------------------------------------------------------------------------
+    // delete_window
+    // -------------------------------------------------------------------------
+    void delete_window(GTK_BaseWindowFactoryInterface *in_interface)
+    {
+      std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
+      m_delete_win_queue.push(in_interface);
     }
     // -------------------------------------------------------------------------
     // on_hide_window
     // -------------------------------------------------------------------------
     void on_hide_window(Gtk::Window *in_window)
     {
-      //delete in_window;
+      for (auto it = m_window_list.begin(); it != m_window_list.end(); it++)
+      {
+        if (in_window == (*it)->get_window())
+        {
+          (*it)->delete_window();
+          m_window_list.erase(it);
+          break;
+        }
+      }
     }
     // -------------------------------------------------------------------------
     // on_idle
     // -------------------------------------------------------------------------
     bool on_idle()
     {
-      process_added_windows();
+      process_create_windows();
+      process_delete_windows();
       return false;
     }
     // -------------------------------------------------------------------------
-    // process_added_windows
+    // process_create_windows
     // -------------------------------------------------------------------------
-    void process_added_windows()
+    void process_create_windows()
     {
-      std::lock_guard<std::mutex> lock(m_add_win_queue_mutex);
-      while (!m_add_win_queue.empty())
+      std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
+      while (!m_create_win_queue.empty())
       {
-        Gtk::Window *win = m_add_win_queue.front();
-        add_window(*win);
-        win->signal_hide().connect(sigc::bind<Gtk::Window*>(
-                sigc::mem_fun(*this,
-                              &GTK_BaseApp::on_hide_window), win));
-        win->present();
-        m_add_win_queue.pop();
+        GTK_BaseWindowFactoryInterface *interface = m_create_win_queue.front();
+        auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
+        if (it == m_window_list.end())
+        {
+          Gtk::Window *win = interface->create_window();
+          add_window(*win);
+          win->signal_hide().connect(sigc::bind<Gtk::Window *>(
+                        sigc::mem_fun(*this,
+                                &GTK_BaseApp::on_hide_window), win));
+          win->present();
+          m_window_list.push_back(interface);
+        }
+        m_create_win_queue.pop();
+      }
+    }
+    // -------------------------------------------------------------------------
+    // process_delete_windows
+    // -------------------------------------------------------------------------
+    void process_delete_windows()
+    {
+      std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
+      while (!m_delete_win_queue.empty())
+      {
+        GTK_BaseWindowFactoryInterface *interface = m_delete_win_queue.front();
+        auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
+        if (it != m_window_list.end())
+        {
+          Gtk::Window *win = interface->get_window();
+          win->close();
+          remove_window(*win);
+          interface->delete_window();
+          m_window_list.erase(it);
+        }
+        m_delete_win_queue.pop();
       }
     }
 
   private:
     // member variables --------------------------------------------------------
-    std::mutex m_add_win_queue_mutex;
-    std::queue<Gtk::Window *> m_add_win_queue;
+    std::mutex m_create_win_queue_mutex;
+    std::queue<GTK_BaseWindowFactoryInterface *> m_create_win_queue;
+    std::mutex m_delete_win_queue_mutex;
+    std::queue<GTK_BaseWindowFactoryInterface *> m_delete_win_queue;
+    std::vector<GTK_BaseWindowFactoryInterface *> m_window_list;
 
     // friend classes ----------------------------------------------------------
     friend class GTK_BaseAppRunner;
   };
+
   // ---------------------------------------------------------------------------
-  //	BaseAppGTK class
+  //	GTK_BaseAppRunner class
   // ---------------------------------------------------------------------------
   class GTK_BaseAppRunner
   {
   public:
-    // static functions --------------------------------------------------------
+    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // check_runner
-    // -------------------------------------------------------------------------
-    static bool check_runner()
-    {
-      if (get_runner() == nullptr)
-        return false;
-      return true;
-    }
-
-  protected:
-    // constructors and destructor ----------------------------------------------
-    // -------------------------------------------------------------------------
-    // GTK_BaseAppRunner
-    // -------------------------------------------------------------------------
-    GTK_BaseAppRunner()
-    {
-      m_app = new GTK_BaseApp();
-      //create_thread();
-    }
-    // -------------------------------------------------------------------------
-    // GTK_BaseAppRunner
+    // ~GTK_BaseAppRunner
     // -------------------------------------------------------------------------
     virtual ~GTK_BaseAppRunner()
     {
       wait_thread();
       delete m_app;
-printf("[DEBUG] I am deleted\n");
+      printf("[DEBUG] GTK_BaseAppRunner was deleted\n");
+    }
+
+  protected:
+    // constructors and destructor ---------------------------------------------
+    // -------------------------------------------------------------------------
+    // GTK_BaseAppRunner
+    // -------------------------------------------------------------------------
+    GTK_BaseAppRunner() :
+      m_app(new GTK_BaseApp()),
+      m_thread(nullptr)
+    {
     }
 
     // Member functions --------------------------------------------------------
@@ -182,11 +235,18 @@ printf("[DEBUG] I am deleted\n");
       m_thread = nullptr;
     }
     // -------------------------------------------------------------------------
-    // add_app_window
+    // create_window
     // -------------------------------------------------------------------------
-    void add_app_window(Gtk::Window *in_window)
+    void create_window(GTK_BaseWindowFactoryInterface *in_interface)
     {
-      m_app->add_app_window(in_window);
+      m_app->create_window(in_interface);
+    }
+    // -------------------------------------------------------------------------
+    // delete_window
+    // -------------------------------------------------------------------------
+    void delete_window(GTK_BaseWindowFactoryInterface *in_interface)
+    {
+      m_app->delete_window(in_interface);
     }
 
     // static functions --------------------------------------------------------
@@ -197,20 +257,6 @@ printf("[DEBUG] I am deleted\n");
     {
       static GTK_BaseAppRunner s_runner;
       return &s_runner;
-    }
-    // -------------------------------------------------------------------------
-    // get_app
-    // -------------------------------------------------------------------------
-    static GTK_BaseApp *get_app()
-    {
-      return get_runner()->m_app;
-    }
-    // -------------------------------------------------------------------------
-    // wait_app
-    // -------------------------------------------------------------------------
-    static void wait_app()
-    {
-      get_runner()->wait_thread();
     }
 
   private:
@@ -228,102 +274,56 @@ printf("[DEBUG] I am deleted\n");
     }
 
     // friend classes ----------------------------------------------------------
-    friend class GTK_BaseWindow;
-  };
-  // ---------------------------------------------------------------------------
-  //	GTK_BaseWindow class
-  // ---------------------------------------------------------------------------
-  class GTK_BaseWindow : public Gtk::Window
-  {
-  public:
-    // -------------------------------------------------------------------------
-    // GTK_BaseWindow
-    // -------------------------------------------------------------------------
-    GTK_BaseWindow()
-    {
-      m_app_base_runner = GTK_BaseAppRunner::get_runner();
-    }
-    // -------------------------------------------------------------------------
-    // GTK_ImageMainWindow
-    // -------------------------------------------------------------------------
-    virtual ~GTK_BaseWindow()
-    {
-    }
-    // -------------------------------------------------------------------------
-    // add_to_app
-    // -------------------------------------------------------------------------
-    void add_to_app()
-    {
-      m_app_base_runner->add_app_window(this);
-      m_app_base_runner->create_thread();
-    }
-    // -------------------------------------------------------------------------
-    // wait_app
-    // -------------------------------------------------------------------------
-    void wait_app()
-    {
-      m_app_base_runner->wait_thread();
-    }
-
-  private:
-    GTK_BaseAppRunner *m_app_base_runner;
+    friend class GTK_BaseObject;
+    friend class ImageWindowGTK;
   };
 
   // ---------------------------------------------------------------------------
   //	GTK_BaseObject class
   // ---------------------------------------------------------------------------
-  class GTK_BaseObject
+  class GTK_BaseObject : protected GTK_BaseWindowFactoryInterface
   {
   public:
+    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // ~GTK_BaseObject
     // -------------------------------------------------------------------------
     virtual ~GTK_BaseObject()
     {
+      m_app_runner->delete_window(this);
     }
     // Member functions --------------------------------------------------------
-    // -------------------------------------------------------------------------
-    // ShowWindow
-    // -------------------------------------------------------------------------
-    void ShowWindow()
-    {
-      if (m_window != nullptr)
-        return;
-
-      // The following is a sanity check
-      // And also this call will create a runner instance (a bit tricky)
-      if (GTK_BaseAppRunner::check_runner() == false)
-        return;
-
-      CreateWindow();
-    }
     // -------------------------------------------------------------------------
     // WaitForWindowCloseAll
     // -------------------------------------------------------------------------
     void WaitForWindowCloseAll()
     {
-      if (m_window == nullptr)
+      m_app_runner->wait_thread();
+    }
+    // -------------------------------------------------------------------------
+    // ShowWindow
+    // -------------------------------------------------------------------------
+    void ShowWindow()
+    {
+      if (get_window() != nullptr)
         return;
-      m_window->wait_app();
+
+      m_app_runner->create_window(this);
+      m_app_runner->create_thread();
     }
 
   protected:
+    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // GTK_BaseObject
     // -------------------------------------------------------------------------
-    GTK_BaseObject() :
-            m_window(nullptr)
+    GTK_BaseObject()
     {
+      m_app_runner = GTK_BaseAppRunner::get_runner();
     }
 
-    // Member functions --------------------------------------------------------
-    // -------------------------------------------------------------------------
-    // CreateWindow
-    // -------------------------------------------------------------------------
-    virtual GTK_BaseWindow *CreateWindow() = 0;
-
   private:
-    GTK_BaseWindow *m_window;
+    GTK_BaseAppRunner *m_app_runner;
   };
 
 #else
@@ -337,29 +337,29 @@ printf("[DEBUG] I am deleted\n");
   // ---------------------------------------------------------------------------
   //	GTK_ImageMainWindow class
   // ---------------------------------------------------------------------------
-  class GTK_ImageMainWindow : public GTK_BaseWindow
+  class GTK_ImageMainWindow : public Gtk::Window
   {
   public:
+    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // GTK_ImageMainWindow
     // -------------------------------------------------------------------------
-    GTK_ImageMainWindow() :
-            GTK_BaseWindow(),
-            m_box(Gtk::Orientation::ORIENTATION_VERTICAL , 0),
-            m_status_bar("Statusbar")
-    {
-    }
+    GTK_ImageMainWindow()
+            //m_box(Gtk::Orientation::ORIENTATION_VERTICAL , 0),
+            //m_status_bar("Statusbar")
+    = default;
     // -------------------------------------------------------------------------
-    // GTK_ImageMainWindow
+    // ~GTK_ImageMainWindow
     // -------------------------------------------------------------------------
-    virtual ~GTK_ImageMainWindow()
+    ~GTK_ImageMainWindow() override
     {
+      printf("[DEBUG] GTK_ImageMainWindow was deleted\n");
     }
 
     friend class ImageWindowGTK;
-    Gtk::Box            m_box;
-    Gtk::ScrolledWindow m_scr_win;
-    Gtk::Label          m_status_bar;
+    //Gtk::Box            m_box;
+    //Gtk::ScrolledWindow m_scr_win;
+    //Gtk::Label          m_status_bar;
     //ibc::gtkmm::ImageView   mImageView;
     //ibc::gtkmm::ImageData   *mImageDataPtr;
   };
@@ -370,17 +370,20 @@ printf("[DEBUG] I am deleted\n");
   class ImageWindowGTK : public GTK_BaseObject
   {
   public:
+    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // ImageWindowGTK
     // -------------------------------------------------------------------------
-    ImageWindowGTK()
+    ImageWindowGTK() :
+            m_window(nullptr)
     {
     }
     // -------------------------------------------------------------------------
     // ~ImageWindowGTK
     // -------------------------------------------------------------------------
-    virtual ~ImageWindowGTK()
+    ~ImageWindowGTK() override
     {
+      printf("[DEBUG] ImageWindowGTK was deleted\n");
     }
 
   protected:
@@ -388,15 +391,24 @@ printf("[DEBUG] I am deleted\n");
     // -------------------------------------------------------------------------
     // ShowWindow
     // -------------------------------------------------------------------------
-    virtual GTK_BaseWindow *CreateWindow()
+    Gtk::Window *create_window() override
     {
-      GTK_ImageMainWindow *window = new GTK_ImageMainWindow();
-      if (window == nullptr)
-        return nullptr;
-      window->add_to_app();
-      return window;
+      m_window = new GTK_ImageMainWindow();
+      return m_window;
     }
+    Gtk::Window *get_window() override
+    {
+      return m_window;
+    }
+    void delete_window() override
+    {
+      delete m_window;
+      m_window = nullptr;
+    }
+
+  private:
+    GTK_ImageMainWindow *m_window;
   };
-};
+}
 
 #endif	// #ifdef IMAGE_WINDOW_GTK_H_
