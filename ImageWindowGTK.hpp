@@ -38,6 +38,7 @@
 #include <vector>
 #include <queue>
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <gtkmm.h>
 
@@ -91,6 +92,8 @@ namespace shl
     // -------------------------------------------------------------------------
     // create_window
     // -------------------------------------------------------------------------
+    // [Note] this function will be called from another thread
+    //
     void create_window(GTK_BaseWindowFactoryInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
@@ -99,6 +102,8 @@ namespace shl
     // -------------------------------------------------------------------------
     // delete_window
     // -------------------------------------------------------------------------
+    // [Note] this function will be called from another thread
+    //
     void delete_window(GTK_BaseWindowFactoryInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
@@ -127,6 +132,10 @@ namespace shl
       process_create_windows();
       process_delete_windows();
       return false;
+    }
+    size_t get_window_num()
+    {
+      return m_window_list.size();
     }
     // -------------------------------------------------------------------------
     // process_create_windows
@@ -203,49 +212,85 @@ namespace shl
     }
 
   protected:
+    // enums -------------------------------------------------------------------
+    enum RunnerStatus
+    {
+      RUNNER_OBJ_CREATED    = 0,
+      RUNNER_THREAD_CREATED,
+      RUNNER_THREAD_RUNNING,
+      RUNNER_THREAD_FINISHED,
+      RUNNER_THREAD_DELETED
+    };
+
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // GTK_BaseAppRunner
     // -------------------------------------------------------------------------
     GTK_BaseAppRunner() :
-      m_app(new GTK_BaseApp()),
-      m_thread(nullptr)
+      m_app(nullptr), m_thread(nullptr)
     {
+      set_runner_status(RUNNER_OBJ_CREATED);
     }
 
     // Member functions --------------------------------------------------------
-    // -------------------------------------------------------------------------
-    // create_thread
-    // -------------------------------------------------------------------------
-    void create_thread()
-    {
-      if (m_thread != nullptr)
-        return;
-      m_thread = new std::thread(thread_func, this);
-    }
     // -------------------------------------------------------------------------
     // wait_thread
     // -------------------------------------------------------------------------
     void wait_thread()
     {
+      std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_thread == nullptr)
         return;
       m_thread->join();
       delete m_thread;
+      delete m_app;
       m_thread = nullptr;
+      m_app = nullptr;
+      set_runner_status(RUNNER_THREAD_DELETED);
+    }
+    // -------------------------------------------------------------------------
+    // is_thread_running
+    // -------------------------------------------------------------------------
+    bool is_thread_running()
+    {
+      RunnerStatus status = get_runner_status();
+      if (status == RUNNER_THREAD_CREATED || status == RUNNER_THREAD_RUNNING)
+        return true;
+      if (status == RUNNER_THREAD_FINISHED)
+        wait_thread();
+      return false;
     }
     // -------------------------------------------------------------------------
     // create_window
     // -------------------------------------------------------------------------
     void create_window(GTK_BaseWindowFactoryInterface *in_interface)
     {
+      std::lock_guard<std::mutex> lock(m_function_call_mutex);
+      // There remains still race condition for this...
+      if (get_runner_status() == RUNNER_THREAD_FINISHED)
+      {
+        m_thread->join();
+        delete m_thread;
+        delete m_app;
+        m_thread = nullptr;
+        m_app = nullptr;
+      }
+      if (m_app == nullptr)
+        m_app = new GTK_BaseApp();
       m_app->create_window(in_interface);
+      if (m_thread != nullptr)
+        return;
+      m_thread = new std::thread(thread_func, this);
+      set_runner_status(RUNNER_THREAD_CREATED);
     }
     // -------------------------------------------------------------------------
     // delete_window
     // -------------------------------------------------------------------------
     void delete_window(GTK_BaseWindowFactoryInterface *in_interface)
     {
+      std::lock_guard<std::mutex> lock(m_function_call_mutex);
+      if (m_app == nullptr)
+        return;
       m_app->delete_window(in_interface);
     }
 
@@ -263,6 +308,9 @@ namespace shl
     // member variables --------------------------------------------------------
     GTK_BaseApp *m_app;
     std::thread *m_thread;
+    std::mutex m_runner_status_mutex;
+    RunnerStatus m_runner_status;
+    std::mutex m_function_call_mutex;
 
     // static functions --------------------------------------------------------
     // -------------------------------------------------------------------------
@@ -270,7 +318,29 @@ namespace shl
     // -------------------------------------------------------------------------
     static void thread_func(GTK_BaseAppRunner *in_obj)
     {
+printf("Thread started\n");
+      in_obj->set_runner_status(RUNNER_THREAD_RUNNING);
       in_obj->m_app->run();
+      in_obj->set_runner_status(RUNNER_THREAD_FINISHED);
+printf("Thread ended\n");
+    }
+
+    // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // set_runner_status
+    // -------------------------------------------------------------------------
+    void set_runner_status(RunnerStatus in_status)
+    {
+      std::lock_guard<std::mutex> lock(m_runner_status_mutex);
+      m_runner_status = in_status;
+    }
+    // -------------------------------------------------------------------------
+    // get_runner_status
+    // -------------------------------------------------------------------------
+    RunnerStatus get_runner_status()
+    {
+      std::lock_guard<std::mutex> lock(m_runner_status_mutex);
+      return m_runner_status;
     }
 
     // friend classes ----------------------------------------------------------
@@ -294,23 +364,33 @@ namespace shl
     }
     // Member functions --------------------------------------------------------
     // -------------------------------------------------------------------------
-    // WaitForWindowCloseAll
+    // wait_window_close_all
     // -------------------------------------------------------------------------
-    void WaitForWindowCloseAll()
+    virtual void wait_window_close_all()
     {
       m_app_runner->wait_thread();
     }
     // -------------------------------------------------------------------------
-    // ShowWindow
+    // is_window_close_all
     // -------------------------------------------------------------------------
-    void ShowWindow()
+    virtual bool is_window_close_all()
+    {
+      if (m_app_runner->is_thread_running() == false)
+        return true;
+      return false;
+    }
+    // -------------------------------------------------------------------------
+    // show_window
+    // -------------------------------------------------------------------------
+    virtual void show_window()
     {
       if (get_window() != nullptr)
         return;
 
       m_app_runner->create_window(this);
-      m_app_runner->create_thread();
+      wait_new_window();
     }
+    virtual void wait_new_window() = 0;
 
   protected:
     // constructors and destructor ---------------------------------------------
@@ -385,15 +465,28 @@ namespace shl
     {
       printf("[DEBUG] ImageWindowGTK was deleted\n");
     }
+    // Member functions --------------------------------------------------------
+    bool is_window_closed()
+    {
+      if (m_window == nullptr)
+        return true;
+      return false;
+    }
+    void wait_new_window() override
+    {
+      std::unique_lock<std::mutex> lock(m_window_mutex);
+      m_window_cond.wait(lock);
+    }
 
   protected:
     // Member functions --------------------------------------------------------
     // -------------------------------------------------------------------------
-    // ShowWindow
+    // show_window
     // -------------------------------------------------------------------------
     Gtk::Window *create_window() override
     {
       m_window = new GTK_ImageMainWindow();
+      m_window_cond.notify_all();
       return m_window;
     }
     Gtk::Window *get_window() override
@@ -408,6 +501,8 @@ namespace shl
 
   private:
     GTK_ImageMainWindow *m_window;
+    std::condition_variable m_window_cond;
+    std::mutex  m_window_mutex;
   };
 }
 
