@@ -48,9 +48,71 @@ namespace shl
 // -----------------------------------------------------------------------------
 //	shl base gtk classes
 // -----------------------------------------------------------------------------
+// Macros ----------------------------------------------------------------------
 #ifndef SHL_BASE_GTK_CLASS_
 #define SHL_BASE_GTK_CLASS_
 #define SHL_BASE_GTK_CLASS_VERSION  SHL_IMAGE_WINDOW_GTK_BASE_VERSION
+//
+#define SHL_LOG_STRINGIFY(x)    #x
+#define SHL_LOG_TOSTRING(x)     SHL_LOG_STRINGIFY(x)
+#define SHL_LOG_AT              SHL_LOG_TOSTRING(__FILE__) ":" SHL_LOG_TOSTRING(__LINE__)
+#define SHL_LOG_LOCATION_MACRO  "(" SHL_LOG_AT ")"
+#ifdef _MSC_VER
+ #define __PRETTY_FUNCTION__  __FUNCTION__
+#endif
+#define SHL_FUNC_NAME_MACRO  __PRETTY_FUNCTION__
+#if defined(SHL_LOG_LEVEL_ERR)
+ #define SHL_LOG_LEVEL 1
+#elif defined(SHL_LOG_LEVEL_WARN)
+ #define SHL_LOG_LEVEL 2
+#elif defined(SHL_LOG_LEVEL_INFO)
+ #define SHL_LOG_LEVEL 3
+#elif defined(SHL_LOG_LEVEL_DBG)
+ #define SHL_LOG_LEVEL 4
+#elif defined(SHL_LOG_LEVEL_TRACE)
+ #define SHL_LOG_LEVEL 5
+#endif
+#ifdef SHL_LOG_LEVEL
+ #define SHL_LOG_OUT(type, loc_str, func_str, out_str, ...) \
+  printf(type " %s@" loc_str  " " out_str "\n", func_str , ##__VA_ARGS__)
+ #if SHL_LOG_LEVEL > 0
+  #define SHL_ERROR_OUT(out_str, ...) SHL_LOG_OUT("[ERROR]",\
+       SHL_LOG_LOCATION_MACRO, SHL_FUNC_NAME_MACRO, out_str, ##__VA_ARGS__)
+ #else
+  #define SHL_ERROR_OUT(out_str, ...)
+ #endif
+ #if SHL_LOG_LEVEL > 1
+  #define SHL_WARNING_OUT(out_str, ...) SHL_LOG_OUT("[WARN ]",\
+       SHL_LOG_LOCATION_MACRO, SHL_FUNC_NAME_MACRO, out_str, ##__VA_ARGS__)
+ #else
+  #define SHL_WARNING_OUT(out_str, ...)
+ #endif
+ #if SHL_LOG_LEVEL > 2
+  #define SHL_INFO_OUT(out_str, ...) SHL_LOG_OUT("[INFO ]",\
+       SHL_LOG_LOCATION_MACRO, SHL_FUNC_NAME_MACRO, out_str, ##__VA_ARGS__)
+ #else
+  #define SHL_INFO_OUT(out_str, ...)
+ #endif
+ #if SHL_LOG_LEVEL > 3
+  #define SHL_DBG_OUT(out_str, ...) SHL_LOG_OUT("[DEBUG]",\
+   SHL_LOG_LOCATION_MACRO, SHL_FUNC_NAME_MACRO, out_str, ##__VA_ARGS__)
+ #else
+  #define SHL_DBG_OUT(out_str, ...)
+ #endif
+ #if SHL_LOG_LEVEL > 4
+  #define SHL_TRACE_OUT(out_str, ...) SHL_LOG_OUT("[TRACE]",\
+   SHL_LOG_LOCATION_MACRO, SHL_FUNC_NAME_MACRO, out_str, ##__VA_ARGS__)
+ #else
+  #define SHL_TRACE_OUT(out_str, ...)
+ #endif
+#else
+ #define SHL_LOG_OUT(type, loc_str, func_str, out_str, ...)
+ #define SHL_ERROR_OUT(out_str, ...)
+ #define SHL_WARNING_OUT(out_str, ...)
+ #define SHL_INFO_OUT(out_str, ...)
+ #define SHL_DBG_OUT(out_str, ...)
+ #define SHL_TRACE_OUT(out_str, ...)
+#endif
 
   // ---------------------------------------------------------------------------
   //	GTK_BaseWindowFactoryInterface class
@@ -69,6 +131,16 @@ namespace shl
   // ---------------------------------------------------------------------------
   class GTK_BaseApp : public Gtk::Application
   {
+  public:
+    // constructors and destructor ---------------------------------------------
+    // -------------------------------------------------------------------------
+    // ~GTK_BaseApp
+    // -------------------------------------------------------------------------
+    ~GTK_BaseApp() override
+    {
+      SHL_DBG_OUT("GTK_BaseApp was deleted");
+    }
+
   protected:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
@@ -116,7 +188,6 @@ namespace shl
     // -------------------------------------------------------------------------
     // get_window_num
     // -------------------------------------------------------------------------
-    //
     size_t get_window_num()
     {
       return m_window_list.size();
@@ -124,7 +195,6 @@ namespace shl
     // -------------------------------------------------------------------------
     // wait_window_all_closed
     // -------------------------------------------------------------------------
-    //
     void wait_window_all_closed()
     {
       std::unique_lock<std::mutex> window_lock(m_window_mutex);
@@ -249,7 +319,7 @@ namespace shl
         delete m_thread;
         delete m_app;
       }
-      printf("[DEBUG] GTK_BaseAppRunner was deleted\n");
+      SHL_DBG_OUT("GTK_BaseAppRunner was deleted");
     }
 
   protected:
@@ -334,7 +404,9 @@ namespace shl
     // -------------------------------------------------------------------------
     static void thread_func(GTK_BaseAppRunner *in_obj)
     {
+      SHL_TRACE_OUT("thread started");
       in_obj->m_app->run();
+      SHL_TRACE_OUT("thread ended");
     }
 
     // friend classes ----------------------------------------------------------
@@ -423,7 +495,7 @@ namespace shl
     // -------------------------------------------------------------------------
     ~GTK_ImageMainWindow() override
     {
-      printf("[DEBUG] GTK_ImageMainWindow was deleted\n");
+      SHL_DBG_OUT("GTK_ImageMainWindow was deleted");
     }
 
     friend class ImageWindowGTK;
@@ -453,7 +525,7 @@ namespace shl
     // -------------------------------------------------------------------------
     ~ImageWindowGTK() override
     {
-      printf("[DEBUG] ImageWindowGTK was deleted\n");
+      SHL_DBG_OUT("ImageWindowGTK was deleted");
     }
     // Member functions --------------------------------------------------------
     bool is_window_closed()
