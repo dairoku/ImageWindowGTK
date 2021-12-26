@@ -1,5 +1,5 @@
 // =============================================================================
-//  ImageWindowGTK.hpp
+//  ImageWindow.hpp
 //
 //  MIT License
 //
@@ -24,7 +24,7 @@
 //  SOFTWARE.
 // =============================================================================
 /*!
-  \file     ImageWindowGTK.h
+  \file     ImageWindow.h
   \author   Dairoku Sekiguchi
   \version  1.0.0
   \date     2021/11/14
@@ -46,7 +46,7 @@
 
 
 // Namespace -------------------------------------------------------------------
-namespace shl
+namespace shl::gtk
 {
 // -----------------------------------------------------------------------------
 //	shl base gtk classes
@@ -118,9 +118,9 @@ namespace shl
 #endif
 
   // ---------------------------------------------------------------------------
-  //	GTK_BaseWindowFactoryInterface class
+  //	BaseWindowFactoryInterface class
   // ---------------------------------------------------------------------------
-  class GTK_BaseWindowFactoryInterface
+  class BaseWindowFactoryInterface
   {
   public:
     virtual Gtk::Window *create_window() = 0;
@@ -132,31 +132,31 @@ namespace shl
   };
 
   // ---------------------------------------------------------------------------
-  //	BaseAppGTK class
+  //	BaseApp class
   // ---------------------------------------------------------------------------
-  class GTK_BaseApp : public Gtk::Application
+  class BaseApp : public Gtk::Application
   {
   public:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // ~GTK_BaseApp
+    // ~BaseApp
     // -------------------------------------------------------------------------
-    ~GTK_BaseApp() override
+    ~BaseApp() override
     {
-      SHL_DBG_OUT("GTK_BaseApp was deleted");
+      SHL_DBG_OUT("BaseApp was deleted");
     }
 
   protected:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // GTK_BaseApp
+    // BaseApp
     // -------------------------------------------------------------------------
-    GTK_BaseApp() :
+    BaseApp() :
             Gtk::Application("org.gtkmm.examples.application",
                              Gio::APPLICATION_NON_UNIQUE),
                              m_quit(false)
     {
-      Glib::signal_idle().connect( sigc::mem_fun(*this, &GTK_BaseApp::on_idle) );
+      Glib::signal_idle().connect( sigc::mem_fun(*this, &BaseApp::on_idle) );
     }
 
     // Member functions --------------------------------------------------------
@@ -165,7 +165,7 @@ namespace shl
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void create_window(GTK_BaseWindowFactoryInterface *in_interface)
+    void create_window(BaseWindowFactoryInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       m_create_win_queue.push(in_interface);
@@ -175,7 +175,7 @@ namespace shl
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void delete_window(GTK_BaseWindowFactoryInterface *in_interface)
+    void delete_window(BaseWindowFactoryInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
       m_delete_win_queue.push(in_interface);
@@ -252,15 +252,15 @@ namespace shl
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       while (!m_create_win_queue.empty())
       {
-        GTK_BaseWindowFactoryInterface *interface = m_create_win_queue.front();
+        BaseWindowFactoryInterface *interface = m_create_win_queue.front();
         auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
         if (it == m_window_list.end())
         {
           Gtk::Window *win = interface->create_window();
           add_window(*win);
           win->signal_hide().connect(sigc::bind<Gtk::Window *>(
-                        sigc::mem_fun(*this,
-                                &GTK_BaseApp::on_hide_window), win));
+                  sigc::mem_fun(*this,
+                                &BaseApp::on_hide_window), win));
           win->present();
           m_window_list.push_back(interface);
         }
@@ -275,7 +275,7 @@ namespace shl
       std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
       while (!m_delete_win_queue.empty())
       {
-        GTK_BaseWindowFactoryInterface *interface = m_delete_win_queue.front();
+        BaseWindowFactoryInterface *interface = m_delete_win_queue.front();
         auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
         if (it != m_window_list.end())
         {
@@ -292,29 +292,29 @@ namespace shl
   private:
     // member variables --------------------------------------------------------
     std::mutex m_create_win_queue_mutex;
-    std::queue<GTK_BaseWindowFactoryInterface *> m_create_win_queue;
+    std::queue<BaseWindowFactoryInterface *> m_create_win_queue;
     std::mutex m_delete_win_queue_mutex;
-    std::queue<GTK_BaseWindowFactoryInterface *> m_delete_win_queue;
-    std::vector<GTK_BaseWindowFactoryInterface *> m_window_list;
+    std::queue<BaseWindowFactoryInterface *> m_delete_win_queue;
+    std::vector<BaseWindowFactoryInterface *> m_window_list;
     std::condition_variable m_window_cond;
     std::mutex  m_window_mutex;
     bool m_quit;
 
     // friend classes ----------------------------------------------------------
-    friend class GTK_BaseAppRunner;
+    friend class BaseAppRunner;
   };
 
   // ---------------------------------------------------------------------------
-  //	GTK_BaseAppRunner class
+  //	BaseAppRunner class
   // ---------------------------------------------------------------------------
-  class GTK_BaseAppRunner
+  class BaseAppRunner
   {
   public:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // ~GTK_BaseAppRunner
+    // ~BaseAppRunner
     // -------------------------------------------------------------------------
-    virtual ~GTK_BaseAppRunner()
+    virtual ~BaseAppRunner()
     {
       if (m_app != nullptr)
         m_app->post_quit_app();
@@ -324,15 +324,15 @@ namespace shl
         delete m_thread;
         delete m_app;
       }
-      SHL_DBG_OUT("GTK_BaseAppRunner was deleted");
+      SHL_DBG_OUT("BaseAppRunner was deleted");
     }
 
   protected:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // GTK_BaseAppRunner
+    // BaseAppRunner
     // -------------------------------------------------------------------------
-    GTK_BaseAppRunner() :
+    BaseAppRunner() :
       m_app(nullptr), m_thread(nullptr)
     {
     }
@@ -363,12 +363,12 @@ namespace shl
     // -------------------------------------------------------------------------
     // create_window
     // -------------------------------------------------------------------------
-    void create_window(GTK_BaseWindowFactoryInterface *in_interface)
+    void create_window(BaseWindowFactoryInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_app == nullptr)
       {
-        m_app = new GTK_BaseApp();
+        m_app = new BaseApp();
         m_app->hold();
       }
       m_app->create_window(in_interface);
@@ -379,7 +379,7 @@ namespace shl
     // -------------------------------------------------------------------------
     // delete_window
     // -------------------------------------------------------------------------
-    void delete_window(GTK_BaseWindowFactoryInterface *in_interface)
+    void delete_window(BaseWindowFactoryInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_app == nullptr)
@@ -391,15 +391,15 @@ namespace shl
     // -------------------------------------------------------------------------
     // get_runner
     // -------------------------------------------------------------------------
-    static GTK_BaseAppRunner *get_runner()
+    static BaseAppRunner *get_runner()
     {
-      static GTK_BaseAppRunner s_runner;
+      static BaseAppRunner s_runner;
       return &s_runner;
     }
 
   private:
     // member variables --------------------------------------------------------
-    GTK_BaseApp *m_app;
+    BaseApp *m_app;
     std::thread *m_thread;
     std::mutex m_function_call_mutex;
 
@@ -407,7 +407,7 @@ namespace shl
     // -------------------------------------------------------------------------
     // thread_func
     // -------------------------------------------------------------------------
-    static void thread_func(GTK_BaseAppRunner *in_obj)
+    static void thread_func(BaseAppRunner *in_obj)
     {
       SHL_TRACE_OUT("thread started");
       in_obj->m_app->run();
@@ -415,21 +415,21 @@ namespace shl
     }
 
     // friend classes ----------------------------------------------------------
-    friend class GTK_BaseObject;
-    friend class ImageWindowGTK;
+    friend class BaseObject;
+    friend class ImageWindow;
   };
 
   // ---------------------------------------------------------------------------
-  //	GTK_BaseObject class
+  //	BaseObject class
   // ---------------------------------------------------------------------------
-  class GTK_BaseObject : protected GTK_BaseWindowFactoryInterface
+  class BaseObject : protected BaseWindowFactoryInterface
   {
   public:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // ~GTK_BaseObject
+    // ~BaseObject
     // -------------------------------------------------------------------------
-    virtual ~GTK_BaseObject()
+    virtual ~BaseObject()
     {
       m_app_runner->delete_window(this);
     }
@@ -476,15 +476,15 @@ namespace shl
   protected:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // GTK_BaseObject
+    // BaseObject
     // -------------------------------------------------------------------------
-    GTK_BaseObject()
+    BaseObject()
     {
-      m_app_runner = GTK_BaseAppRunner::get_runner();
+      m_app_runner = BaseAppRunner::get_runner();
     }
 
   private:
-    GTK_BaseAppRunner *m_app_runner;
+    BaseAppRunner *m_app_runner;
   };
 
 #else
@@ -684,113 +684,113 @@ namespace shl
     bool  m_is_image_modified;
 
     // friend classes ----------------------------------------------------------
-    friend class GTK_ImageView;
+    friend class ImageView;
   };
 
   // ---------------------------------------------------------------------------
-  // GTK_ImageView class
+  // ImageView class
   // ---------------------------------------------------------------------------
   // Note: Order of Scrollable -> Widget is very important
-  class GTK_ImageView : virtual public Gtk::Scrollable, virtual public Gtk::Widget
+  class ImageView : virtual public Gtk::Scrollable, virtual public Gtk::Widget
   {
   public:
     // Constructors and Destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // GTK_ImageView
+    // ImageView
     // -------------------------------------------------------------------------
-    GTK_ImageView() :
-            Glib::ObjectBase("GTK_ImageView"),
-            mHAdjustment(*this, "hadjustment"),
-            mVAdjustment(*this, "vadjustment"),
-            mHScrollPolicy(*this, "hscroll-policy", Gtk::SCROLL_NATURAL),
-            mVScrollPolicy(*this, "vscroll-policy", Gtk::SCROLL_NATURAL)
+    ImageView() :
+            Glib::ObjectBase("ImageView"),
+            m_h_adjustment(*this, "hadjustment"),
+            m_v_adjustment(*this, "vadjustment"),
+            m_h_scroll_policy(*this, "hscroll-policy", Gtk::SCROLL_NATURAL),
+            m_v_scroll_policy(*this, "vscroll-policy", Gtk::SCROLL_NATURAL)
     {
       set_has_window(true);
-      property_hadjustment().signal_changed().connect(sigc::mem_fun(*this, &shl::GTK_ImageView::hAdjustmentChanged));
-      property_vadjustment().signal_changed().connect(sigc::mem_fun(*this, &shl::GTK_ImageView::vAdjustmentChanged));
+      property_hadjustment().signal_changed().connect(sigc::mem_fun(*this, &shl::gtk::ImageView::h_adjustment_changed));
+      property_vadjustment().signal_changed().connect(sigc::mem_fun(*this, &shl::gtk::ImageView::v_adjustment_changed));
 
-      mWidth = 0;
-      mHeight = 0;
-      mOrgWidth = 0;
-      mOrgHeight = 0;
+      m_width = 0;
+      m_height = 0;
+      m_org_width = 0;
+      m_org_height = 0;
       m_mouse_x = 0;
       m_mouse_y = 0;
-      mOffsetX    = 0;
-      mOffsetY    = 0;
-      mOffsetXMax = 0;
-      mOffsetYMax = 0;
-      mOffsetXOrg = 0;
-      mOffsetYOrg = 0;
-      mWindowX    = 0;
-      mWindowY    = 0;
-      mWindowWidth  = 0;
-      mWindowHeight = 0;
-      mZoom          = 1.0;
-      mMouseLPressed = false;
-      mAdjusmentsModified = false;
+      m_offset_x    = 0;
+      m_offset_y    = 0;
+      m_offset_x_max = 0;
+      m_offset_y_max = 0;
+      m_offset_x_org = 0;
+      m_offset_y_org = 0;
+      m_window_x    = 0;
+      m_window_y    = 0;
+      m_window_width  = 0;
+      m_window_height = 0;
+      m_zoom          = 1.0;
+      m_mouse_l_pressed = false;
+      m_adjustments_modified = false;
 
-      mImageDataPtr = nullptr;
-      mIsImageSizeChanged = false;
+      m_image_data_ptr = nullptr;
+      m_is_image_size_changed = false;
 
       add_events(Gdk::SCROLL_MASK |
                  Gdk::BUTTON_MOTION_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                  Gdk::POINTER_MOTION_MASK);
     }
     // -------------------------------------------------------------------------
-    // GTK_ImageViewBaseBase
+    // ~ImageView
     // -------------------------------------------------------------------------
-    ~GTK_ImageView() override
+    ~ImageView() override
     {
     }
 
   protected:
     // Member functions --------------------------------------------------------
     // -------------------------------------------------------------------------
-    // setImageDataPtr
+    // set_image_data
     // -------------------------------------------------------------------------
-    void  setImageDataPtr(ImageData *inImageDataPtr)
+    void  set_image_data(ImageData *inImageDataPtr)
     {
-      mImageDataPtr = inImageDataPtr;
-      markAsImageSizeChanged();
+      m_image_data_ptr = inImageDataPtr;
+      mark_as_image_size_changed();
     }
     // -------------------------------------------------------------------------
-    // queueRedrawWidget
+    // queue_redraw_widget
     // -------------------------------------------------------------------------
-    void  queueRedrawWidget()
+    void  queue_redraw_widget()
     {
       queue_draw();
     }
     // -------------------------------------------------------------------------
-    // markAsImageSizeChanged
+    // mark_as_image_size_changed
     // -------------------------------------------------------------------------
-    void  markAsImageSizeChanged()
+    void  mark_as_image_size_changed()
     {
-      mIsImageSizeChanged = true;
+      m_is_image_size_changed = true;
       queue_draw();
     }
     // -------------------------------------------------------------------------
-    // isImageSizeChanged
+    // is_image_size_changed
     // -------------------------------------------------------------------------
-    bool  isImageSizeChanged() const
+    bool  is_image_size_changed() const
     {
-      return mIsImageSizeChanged;
+      return m_is_image_size_changed;
     }
     // -------------------------------------------------------------------------
-    // updateSizeUsingImageData
+    // update_size_using_image_data
     // -------------------------------------------------------------------------
-    bool  updateSizeUsingImageData()
+    bool  update_size_using_image_data()
     {
-      if (mImageDataPtr == nullptr)
+      if (m_image_data_ptr == nullptr)
         return false;
-      if (mImageDataPtr->check_image_data() == false)
+      if (m_image_data_ptr->check_image_data() == false)
         return false;
       //
-      mOrgWidth   = mImageDataPtr->get_image_width();
-      mOrgHeight  = mImageDataPtr->get_image_height();
-      mWidth       = mOrgWidth;
-      mHeight      = mOrgHeight;
-      configureHAdjustment();
-      configureVAdjustment();
+      m_org_width   = m_image_data_ptr->get_image_width();
+      m_org_height  = m_image_data_ptr->get_image_height();
+      m_width       = m_org_width;
+      m_height      = m_org_height;
+      configure_h_adjustment();
+      configure_v_adjustment();
       return true;
     }
     // -------------------------------------------------------------------------
@@ -798,44 +798,44 @@ namespace shl
     // -------------------------------------------------------------------------
     bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override
     {
-      if (mImageDataPtr == nullptr)
+      if (m_image_data_ptr == nullptr)
         return false;
-      if (mImageDataPtr->check_image_data() == false)
+      if (m_image_data_ptr->check_image_data() == false)
         return false;
-      if (mIsImageSizeChanged)
+      if (m_is_image_size_changed)
       {
-        updateSizeUsingImageData();
-        mIsImageSizeChanged = false;
+        update_size_using_image_data();
+        m_is_image_size_changed = false;
       }
-      if (mImageDataPtr->update_pixbuf() == false)
+      if (m_image_data_ptr->update_pixbuf() == false)
         return false;
       //
       double x = 0, y = 0;
-      if (mWidth <= mWindowWidth)
-        x = (mWindowWidth  - mWidth)  / 2;
+      if (m_width <= m_window_width)
+        x = (m_window_width - m_width) / 2;
       else
-        x = -1 * mOffsetX;
-      if (mHeight <= mWindowHeight)
-        y = (mWindowHeight - mHeight) / 2;
+        x = -1 * m_offset_x;
+      if (m_height <= m_window_height)
+        y = (m_window_height - m_height) / 2;
       else
-        y = -1 * mOffsetY;
+        y = -1 * m_offset_y;
       //
-      if (mZoom >= 1)
+      if (m_zoom >= 1)
       {
         cr->set_identity_matrix();
         cr->translate(x, y);
-        cr->scale(mZoom, mZoom);
-        Gdk::Cairo::set_source_pixbuf(cr, mImageDataPtr->m_pixbuf, 0, 0);
+        cr->scale(m_zoom, m_zoom);
+        Gdk::Cairo::set_source_pixbuf(cr, m_image_data_ptr->m_pixbuf, 0, 0);
         Cairo::SurfacePattern pattern(cr->get_source()->cobj());
         pattern.set_filter(Cairo::Filter::FILTER_NEAREST);
       }
       else
       {
         Gdk::Cairo::set_source_pixbuf(cr,
-                                      mImageDataPtr->m_pixbuf->scale_simple(
-                                                                        mWidth, mHeight,
-                                                                        Gdk::INTERP_NEAREST),
-                                     x, y);
+                                      m_image_data_ptr->m_pixbuf->scale_simple(
+                                              m_width, m_height,
+                                              Gdk::INTERP_NEAREST),
+                                      x, y);
       }
       cr->paint();
       return true;
@@ -849,7 +849,7 @@ namespace shl
       // It's intended only for widgets that set_has_window(false).
       set_realized();
 
-      if(!mWindow)
+      if(!m_window)
       {
         GdkWindowAttr attributes;
 
@@ -863,11 +863,11 @@ namespace shl
         attributes.window_type = GDK_WINDOW_CHILD;
         attributes.wclass = GDK_INPUT_OUTPUT;
 
-        mWindow = Gdk::Window::create(get_parent_window(), &attributes, Gdk::WA_X | Gdk::WA_Y);
-        set_window(mWindow);
+        m_window = Gdk::Window::create(get_parent_window(), &attributes, Gdk::WA_X | Gdk::WA_Y);
+        set_window(m_window);
 
         //make the widget receive expose events
-        mWindow->set_user_data(Gtk::Widget::gobj());
+        m_window->set_user_data(Gtk::Widget::gobj());
       }
     }
     // -------------------------------------------------------------------------
@@ -875,7 +875,7 @@ namespace shl
     // -------------------------------------------------------------------------
     void  on_unrealize() override
     {
-      mWindow.reset();
+      m_window.reset();
 
       //Call base class:
       Gtk::Widget::on_unrealize();
@@ -885,11 +885,11 @@ namespace shl
     // -------------------------------------------------------------------------
     bool  on_button_press_event(GdkEventButton* button_event) override
     {
-      mMouseLPressed = true;
+      m_mouse_l_pressed = true;
       m_mouse_x = button_event->x;
       m_mouse_y = button_event->y;
-      mOffsetXOrg= mOffsetX;
-      mOffsetYOrg = mOffsetY;
+      m_offset_x_org= m_offset_x;
+      m_offset_y_org = m_offset_y;
       return true;
     }
     // -------------------------------------------------------------------------
@@ -897,40 +897,40 @@ namespace shl
     // -------------------------------------------------------------------------
     bool  on_motion_notify_event(GdkEventMotion* motion_event) override
     {
-      if (mMouseLPressed == false)
+      if (m_mouse_l_pressed == false)
         return false;
 
-      if (mWidth > mWindowWidth)
+      if (m_width > m_window_width)
       {
-        double d = mOffsetXOrg + (m_mouse_x - motion_event->x);
-        if (d > mOffsetXMax)
-          d = mOffsetXMax;
+        double d = m_offset_x_org + (m_mouse_x - motion_event->x);
+        if (d > m_offset_x_max)
+          d = m_offset_x_max;
         if (d < 0)
           d = 0;
-        if (d != mOffsetX)
+        if (d != m_offset_x)
         {
-          mOffsetX = d;
+          m_offset_x = d;
           const auto v = property_hadjustment().get_value();
           v->freeze_notify();
-          v->set_value(mOffsetX);
-          mAdjusmentsModified = true;
+          v->set_value(m_offset_x);
+          m_adjustments_modified = true;
           v->thaw_notify();
         }
       }
-      if (mHeight > mWindowHeight)
+      if (m_height > m_window_height)
       {
-        double d = mOffsetYOrg + (m_mouse_y - motion_event->y);
-        if (d > mOffsetYMax)
-          d = mOffsetYMax;
+        double d = m_offset_y_org + (m_mouse_y - motion_event->y);
+        if (d > m_offset_y_max)
+          d = m_offset_y_max;
         if (d < 0)
           d = 0;
-        if (d != mOffsetY)
+        if (d != m_offset_y)
         {
-          mOffsetY = d;
+          m_offset_y = d;
           const auto v = property_vadjustment().get_value();
           v->freeze_notify();
-          v->set_value(mOffsetY);
-          mAdjusmentsModified = true;
+          v->set_value(m_offset_y);
+          m_adjustments_modified = true;
           v->thaw_notify();
         }
       }
@@ -941,7 +941,7 @@ namespace shl
     // -------------------------------------------------------------------------
     bool  on_button_release_event(GdkEventButton* release_event) override
     {
-      mMouseLPressed = false;
+      m_mouse_l_pressed = false;
       return true;
     }
     // -------------------------------------------------------------------------
@@ -959,64 +959,64 @@ namespace shl
       //          << "delta_y = " << event->delta_y << std::endl;
 
       double v;
-      double prev_zoom = mZoom;
+      double prev_zoom = m_zoom;
 
       if (event->direction == 0)
         v = 0.02;
       else
         v = -0.02;
-      v = log10(mZoom) + v;
-      mZoom = pow(10, v);
-      if (fabs(mZoom - 1.0) <= 0.01)
-        mZoom = 1.0;
-      if (mZoom <= 0.01)
-        mZoom = 0.01;
+      v = log10(m_zoom) + v;
+      m_zoom = pow(10, v);
+      if (fabs(m_zoom - 1.0) <= 0.01)
+        m_zoom = 1.0;
+      if (m_zoom <= 0.01)
+        m_zoom = 0.01;
 
-      double prev_width = mWidth;
-      double prev_height = mHeight;
-      v = mOrgWidth * mZoom;
-      mWidth = v;
-      v = mOrgHeight * mZoom;
-      mHeight = v;
+      double prev_width = m_width;
+      double prev_height = m_height;
+      v = m_org_width * m_zoom;
+      m_width = v;
+      v = m_org_height * m_zoom;
+      m_height = v;
 
-      if (mWidth <= mWindowWidth)
-        mOffsetX = 0;
+      if (m_width <= m_window_width)
+        m_offset_x = 0;
       else
       {
-        if (prev_width <= mWindowWidth)
-          v = -1 * (mWindowWidth - prev_width) / 2.0;
+        if (prev_width <= m_window_width)
+          v = -1 * (m_window_width - prev_width) / 2.0;
         else
           v = 0;
-        v = v + (mOffsetX + event->x) / prev_zoom;
-        v = v * mZoom - event->x;
-        mOffsetX = v;
-        mOffsetXMax = mWidth - mWindowWidth;
-        if (mOffsetX > mOffsetXMax)
-          mOffsetX = mOffsetXMax;
-        if (mOffsetX < 0)
-          mOffsetX = 0;
+        v = v + (m_offset_x + event->x) / prev_zoom;
+        v = v * m_zoom - event->x;
+        m_offset_x = v;
+        m_offset_x_max = m_width - m_window_width;
+        if (m_offset_x > m_offset_x_max)
+          m_offset_x = m_offset_x_max;
+        if (m_offset_x < 0)
+          m_offset_x = 0;
       }
 
-      if (mHeight <= mWindowHeight)
-        mOffsetY = 0;
+      if (m_height <= m_window_height)
+        m_offset_y = 0;
       else
       {
-        if (prev_height <= mWindowHeight)
-          v = -1 * (mWindowHeight - prev_height) / 2.0;
+        if (prev_height <= m_window_height)
+          v = -1 * (m_window_height - prev_height) / 2.0;
         else
           v = 0;
-        v = (mOffsetY + event->y) / prev_zoom;
-        v = v * mZoom - event->y;
-        mOffsetY = v;
-        mOffsetYMax = mHeight - mWindowHeight;
-        if (mOffsetY > mOffsetYMax)
-          mOffsetY = mOffsetYMax;
-        if (mOffsetY < 0)
-          mOffsetY = 0;
+        v = (m_offset_y + event->y) / prev_zoom;
+        v = v * m_zoom - event->y;
+        m_offset_y = v;
+        m_offset_y_max = m_height - m_window_height;
+        if (m_offset_y > m_offset_y_max)
+          m_offset_y = m_offset_y_max;
+        if (m_offset_y < 0)
+          m_offset_y = 0;
       }
 
-      configureHAdjustment();
-      configureVAdjustment();
+      configure_h_adjustment();
+      configure_v_adjustment();
       queue_draw();
 
       return true;
@@ -1032,54 +1032,56 @@ namespace shl
 
       //Use the offered allocation for this container:
       set_allocation(allocation);
-      mWindowX = allocation.get_x();
-      mWindowY = allocation.get_y();
-      mWindowWidth = allocation.get_width();
-      mWindowHeight = allocation.get_height();
+      m_window_x = allocation.get_x();
+      m_window_y = allocation.get_y();
+      m_window_width = allocation.get_width();
+      m_window_height = allocation.get_height();
 
-      if(mWindow)
+      if(m_window)
       {
-        mWindow->move_resize(mWindowX, mWindowY, mWindowWidth, mWindowHeight);
-        configureHAdjustment();
-        configureVAdjustment();
+        m_window->move_resize(m_window_x, m_window_y, m_window_width, m_window_height);
+        configure_h_adjustment();
+        configure_v_adjustment();
       }
     }
     // -------------------------------------------------------------------------
-    // hAdjustmentChanged
+    // h_adjustment_changed
     // -------------------------------------------------------------------------
-    void hAdjustmentChanged()
+    void h_adjustment_changed()
     {
       const auto v = property_hadjustment().get_value();
       if (!v)
         return;
-      mHAdjustmentConnection.disconnect();
-      mHAdjustmentConnection = v->signal_value_changed().connect(sigc::mem_fun(*this, &shl::GTK_ImageView::adjustmentValueChanged));
-      configureHAdjustment();
+      m_h_adjustment_connection.disconnect();
+      m_h_adjustment_connection = v->signal_value_changed().connect(sigc::mem_fun(*this,
+                                                                                  &shl::gtk::ImageView::adjustment_value_changed));
+      configure_h_adjustment();
     }
     // -------------------------------------------------------------------------
-    // vAdjustmentChanged
+    // v_adjustment_changed
     // -------------------------------------------------------------------------
-    void vAdjustmentChanged()
+    void v_adjustment_changed()
     {
       const auto v = property_vadjustment().get_value();
       if (!v)
         return;
-      mVAdjustmentConnection.disconnect();
-      mVAdjustmentConnection = v->signal_value_changed().connect(sigc::mem_fun(*this, &shl::GTK_ImageView::adjustmentValueChanged));
-      configureVAdjustment();
+      m_v_adjustment_connection.disconnect();
+      m_v_adjustment_connection = v->signal_value_changed().connect(sigc::mem_fun(*this,
+                                                                                  &shl::gtk::ImageView::adjustment_value_changed));
+      configure_v_adjustment();
     }
     // -------------------------------------------------------------------------
-    // configureHAdjustment
+    // configure_h_adjustment
     // -------------------------------------------------------------------------
-    virtual void configureHAdjustment()
+    virtual void configure_h_adjustment()
     {
       const auto v = property_hadjustment().get_value();
-      if (!v || mWindowWidth == 0)
+      if (!v || m_window_width == 0)
         return;
       v->freeze_notify();
-      if (mWidth <= mWindowWidth)
+      if (m_width <= m_window_width)
       {
-        mOffsetX = 0;
+        m_offset_x = 0;
         v->set_value(0);
         v->set_upper(0);
         v->set_step_increment(0);
@@ -1087,29 +1089,29 @@ namespace shl
       }
       else
       {
-        mOffsetXMax = mWidth - mWindowWidth;
-        if (mOffsetX > mOffsetXMax)
-          mOffsetX = mOffsetXMax;
-        v->set_upper(mOffsetXMax);
-        v->set_value(mOffsetX);
+        m_offset_x_max = m_width - m_window_width;
+        if (m_offset_x > m_offset_x_max)
+          m_offset_x = m_offset_x_max;
+        v->set_upper(m_offset_x_max);
+        v->set_value(m_offset_x);
         v->set_step_increment(1);
         v->set_page_size(10);
-        mAdjusmentsModified = true;
+        m_adjustments_modified = true;
       }
       v->thaw_notify();
     }
     // -------------------------------------------------------------------------
-    // configureVAdjustment
+    // configure_v_adjustment
     // -------------------------------------------------------------------------
-    virtual void configureVAdjustment()
+    virtual void configure_v_adjustment()
     {
       const auto v = property_vadjustment().get_value();
-      if (!v || mWindowHeight == 0)
+      if (!v || m_window_height == 0)
         return;
       v->freeze_notify();
-      if (mHeight <= mWindowHeight)
+      if (m_height <= m_window_height)
       {
-        mOffsetY = 0;
+        m_offset_y = 0;
         v->set_value(0);
         v->set_upper(0);
         v->set_step_increment(0);
@@ -1117,73 +1119,73 @@ namespace shl
       }
       else
       {
-        mOffsetYMax = mHeight - mWindowHeight;
-        if (mOffsetY > mOffsetYMax)
-          mOffsetY = mOffsetYMax;
-        v->set_upper(mOffsetYMax);
-        v->set_value(mOffsetY);
+        m_offset_y_max = m_height - m_window_height;
+        if (m_offset_y > m_offset_y_max)
+          m_offset_y = m_offset_y_max;
+        v->set_upper(m_offset_y_max);
+        v->set_value(m_offset_y);
         v->set_step_increment(1);
         v->set_page_size(10);
-        mAdjusmentsModified = true;
+        m_adjustments_modified = true;
       }
       v->thaw_notify();
     }
     // -------------------------------------------------------------------------
-    // adjustmentValueChanged
+    // adjustment_value_changed
     // -------------------------------------------------------------------------
-    virtual void adjustmentValueChanged()
+    virtual void adjustment_value_changed()
     {
-      if (mWidth > mWindowWidth && mAdjusmentsModified == false)
+      if (m_width > m_window_width && m_adjustments_modified == false)
       {
         const auto v = property_hadjustment().get_value();
-        mOffsetX = v->get_value();
+        m_offset_x = v->get_value();
       }
-      if (mHeight > mWindowHeight && mAdjusmentsModified == false)
+      if (m_height > m_window_height && m_adjustments_modified == false)
       {
         const auto v = property_vadjustment().get_value();
-        mOffsetY = v->get_value();
+        m_offset_y = v->get_value();
       }
-      mAdjusmentsModified = false;
+      m_adjustments_modified = false;
       queue_draw();
     }
 
     // Member variables --------------------------------------------------------
-    Glib::Property<Glib::RefPtr<Gtk::Adjustment>> mHAdjustment;
-    Glib::Property<Glib::RefPtr<Gtk::Adjustment>> mVAdjustment;
-    Glib::Property<Gtk::ScrollablePolicy> mHScrollPolicy;
-    Glib::Property<Gtk::ScrollablePolicy> mVScrollPolicy;
-    sigc::connection mHAdjustmentConnection;
-    sigc::connection mVAdjustmentConnection;
+    Glib::Property<Glib::RefPtr<Gtk::Adjustment>> m_h_adjustment;
+    Glib::Property<Glib::RefPtr<Gtk::Adjustment>> m_v_adjustment;
+    Glib::Property<Gtk::ScrollablePolicy> m_h_scroll_policy;
+    Glib::Property<Gtk::ScrollablePolicy> m_v_scroll_policy;
+    sigc::connection m_h_adjustment_connection;
+    sigc::connection m_v_adjustment_connection;
 
-    double mWindowX, mWindowY, mWindowWidth, mWindowHeight;
-    double mWidth, mHeight;
-    double mOrgWidth, mOrgHeight;
+    double m_window_x, m_window_y, m_window_width, m_window_height;
+    double m_width, m_height;
+    double m_org_width, m_org_height;
     double m_mouse_x, m_mouse_y;
-    double mOffsetX, mOffsetY;
-    double mOffsetXMax, mOffsetYMax;
-    double mOffsetXOrg, mOffsetYOrg;
-    double mZoom;
-    bool  mMouseLPressed;
-    bool  mAdjusmentsModified;
+    double m_offset_x, m_offset_y;
+    double m_offset_x_max, m_offset_y_max;
+    double m_offset_x_org, m_offset_y_org;
+    double m_zoom;
+    bool  m_mouse_l_pressed;
+    bool  m_adjustments_modified;
 
-    ImageData *mImageDataPtr;
-    bool  mIsImageSizeChanged;
+    ImageData *m_image_data_ptr;
+    bool  m_is_image_size_changed;
 
-    Glib::RefPtr<Gdk::Pixbuf>  mPixbuf;
-    Glib::RefPtr<Gdk::Window> mWindow;
+    Glib::RefPtr<Gdk::Pixbuf>  m_pixbuf;
+    Glib::RefPtr<Gdk::Window> m_window;
   };
 
   // ---------------------------------------------------------------------------
-  //	GTK_ImageMainWindow class
+  //	ImageMainWindow class
   // ---------------------------------------------------------------------------
-  class GTK_ImageMainWindow : public Gtk::Window
+  class ImageMainWindow : public Gtk::Window
   {
   public:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // GTK_ImageMainWindow
+    // ImageMainWindow
     // -------------------------------------------------------------------------
-    GTK_ImageMainWindow() :
+    ImageMainWindow() :
       m_box(Gtk::Orientation::ORIENTATION_VERTICAL , 0),
       m_status_bar("Statusbar")
     {
@@ -1196,11 +1198,11 @@ namespace shl
       show_all_children();
     }
     // -------------------------------------------------------------------------
-    // ~GTK_ImageMainWindow
+    // ~ImageMainWindow
     // -------------------------------------------------------------------------
-    ~GTK_ImageMainWindow() override
+    ~ImageMainWindow() override
     {
-      SHL_DBG_OUT("GTK_ImageMainWindow was deleted");
+      SHL_DBG_OUT("ImageMainWindow was deleted");
     }
     // Member functions ----------------------------------------------------------
     // ---------------------------------------------------------------------------
@@ -1214,33 +1216,33 @@ namespace shl
     Gtk::Box            m_box;
     Gtk::ScrolledWindow m_scr_win;
     Gtk::Label          m_status_bar;
-    shl::GTK_ImageView   mImageView;
+    shl::gtk::ImageView   mImageView;
     //
     ImageData   *m_image_data_ptr;
 
-    friend class ImageWindowGTK;
+    friend class ImageWindow;
   };
 
   // ---------------------------------------------------------------------------
-  //	ImageWindowGTK class
+  //	ImageWindow class
   // ---------------------------------------------------------------------------
-  class ImageWindowGTK : public ImageData, public GTK_BaseObject
+  class ImageWindow : public ImageData, public BaseObject
   {
   public:
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // ImageWindowGTK
+    // ImageWindow
     // -------------------------------------------------------------------------
-    ImageWindowGTK()
+    ImageWindow()
     {
       m_window = nullptr;
     }
     // -------------------------------------------------------------------------
-    // ~ImageWindowGTK
+    // ~ImageWindow
     // -------------------------------------------------------------------------
-    ~ImageWindowGTK() override
+    ~ImageWindow() override
     {
-      SHL_DBG_OUT("ImageWindowGTK was deleted");
+      SHL_DBG_OUT("ImageWindow was deleted");
     }
 
   protected:
@@ -1250,7 +1252,7 @@ namespace shl
     // -------------------------------------------------------------------------
     Gtk::Window *create_window() override
     {
-      m_window = new GTK_ImageMainWindow();
+      m_window = new ImageMainWindow();
       m_window->set_image_data(this);
       m_new_window_cond.notify_all();
       return m_window;
@@ -1283,12 +1285,12 @@ namespace shl
     }
 
   private:
-    GTK_ImageMainWindow *m_window;
+    ImageMainWindow *m_window;
     std::condition_variable m_new_window_cond;
     std::mutex  m_new_window_mutex;
     std::condition_variable m_delete_window_cond;
     std::mutex  m_delete_window_mutex;
   };
-}
+} // namespace shl::gtk
 
 #endif	// #ifdef IMAGE_WINDOW_GTK_H_
