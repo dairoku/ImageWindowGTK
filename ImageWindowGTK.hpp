@@ -48,9 +48,9 @@
 // Namespace -------------------------------------------------------------------
 namespace shl::gtk
 {
-// -----------------------------------------------------------------------------
+// =============================================================================
 //	shl base gtk classes
-// -----------------------------------------------------------------------------
+// =============================================================================
 // Macros ----------------------------------------------------------------------
 #ifndef SHL_BASE_GTK_CLASS_
 #define SHL_BASE_GTK_CLASS_
@@ -117,10 +117,10 @@ namespace shl::gtk
  #define SHL_TRACE_OUT(out_str, ...)
 #endif
 
-  // ---------------------------------------------------------------------------
-  //	BaseWindowFactoryInterface class
-  // ---------------------------------------------------------------------------
-  class BaseWindowFactoryInterface
+  // ===========================================================================
+  //	BaseWindowInterface class
+  // ===========================================================================
+  class BaseWindowInterface
   {
   public:
     virtual Gtk::Window *create_window() = 0;
@@ -129,15 +129,15 @@ namespace shl::gtk
     virtual void delete_window() = 0;
     virtual bool is_window_deleted() = 0;
     virtual void wait_delete_window() = 0;
+    virtual void update_window() = 0;
   };
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   //	BaseApp class
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   class BaseApp : public Gtk::Application
   {
   public:
-    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // ~BaseApp
     // -------------------------------------------------------------------------
@@ -147,7 +147,6 @@ namespace shl::gtk
     }
 
   protected:
-    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // BaseApp
     // -------------------------------------------------------------------------
@@ -165,7 +164,7 @@ namespace shl::gtk
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void create_window(BaseWindowFactoryInterface *in_interface)
+    void create_window(BaseWindowInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       m_create_win_queue.push(in_interface);
@@ -175,10 +174,20 @@ namespace shl::gtk
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void delete_window(BaseWindowFactoryInterface *in_interface)
+    void delete_window(BaseWindowInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
       m_delete_win_queue.push(in_interface);
+    }
+    // -------------------------------------------------------------------------
+    // update_window
+    // -------------------------------------------------------------------------
+    // [Note] this function will be called from another thread
+    //
+    void update_window(BaseWindowInterface *in_interface)
+    {
+      std::lock_guard<std::mutex> lock(m_update_win_queue_mutex);
+      m_update_win_queue.push(in_interface);
     }
     // -------------------------------------------------------------------------
     // post_quit_app
@@ -207,7 +216,6 @@ namespace shl::gtk
         return;
       m_window_cond.wait(window_lock);
     }
-    // -------------------------------------------------------------------------
     // -------------------------------------------------------------------------
     // on_activate
     // -------------------------------------------------------------------------
@@ -239,6 +247,7 @@ namespace shl::gtk
     bool on_idle()
     {
       process_create_windows();
+      process_update_windows();
       process_delete_windows();
       if (m_quit)
         quit();
@@ -252,7 +261,7 @@ namespace shl::gtk
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       while (!m_create_win_queue.empty())
       {
-        BaseWindowFactoryInterface *interface = m_create_win_queue.front();
+        BaseWindowInterface *interface = m_create_win_queue.front();
         auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
         if (it == m_window_list.end())
         {
@@ -275,7 +284,7 @@ namespace shl::gtk
       std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
       while (!m_delete_win_queue.empty())
       {
-        BaseWindowFactoryInterface *interface = m_delete_win_queue.front();
+        BaseWindowInterface *interface = m_delete_win_queue.front();
         auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
         if (it != m_window_list.end())
         {
@@ -288,14 +297,32 @@ namespace shl::gtk
         m_delete_win_queue.pop();
       }
     }
+    // -------------------------------------------------------------------------
+    // process_update_windows
+    // -------------------------------------------------------------------------
+    void process_update_windows()
+    {
+      std::lock_guard<std::mutex> lock(m_update_win_queue_mutex);
+      while (!m_update_win_queue.empty())
+      {
+        BaseWindowInterface *interface = m_update_win_queue.front();
+        auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
+        if (it != m_window_list.end())
+          interface->update_window();
+        m_update_win_queue.pop();
+      }
+    }
 
   private:
     // member variables --------------------------------------------------------
     std::mutex m_create_win_queue_mutex;
-    std::queue<BaseWindowFactoryInterface *> m_create_win_queue;
+    std::queue<BaseWindowInterface *> m_create_win_queue;
     std::mutex m_delete_win_queue_mutex;
-    std::queue<BaseWindowFactoryInterface *> m_delete_win_queue;
-    std::vector<BaseWindowFactoryInterface *> m_window_list;
+    std::queue<BaseWindowInterface *> m_delete_win_queue;
+    std::mutex m_update_win_queue_mutex;
+    std::queue<BaseWindowInterface *> m_update_win_queue;
+    //
+    std::vector<BaseWindowInterface *> m_window_list;
     std::condition_variable m_window_cond;
     std::mutex  m_window_mutex;
     bool m_quit;
@@ -304,13 +331,12 @@ namespace shl::gtk
     friend class BaseAppRunner;
   };
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   //	BaseAppRunner class
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   class BaseAppRunner
   {
   public:
-    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // ~BaseAppRunner
     // -------------------------------------------------------------------------
@@ -328,7 +354,6 @@ namespace shl::gtk
     }
 
   protected:
-    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // BaseAppRunner
     // -------------------------------------------------------------------------
@@ -363,7 +388,7 @@ namespace shl::gtk
     // -------------------------------------------------------------------------
     // create_window
     // -------------------------------------------------------------------------
-    void create_window(BaseWindowFactoryInterface *in_interface)
+    void create_window(BaseWindowInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_app == nullptr)
@@ -379,12 +404,22 @@ namespace shl::gtk
     // -------------------------------------------------------------------------
     // delete_window
     // -------------------------------------------------------------------------
-    void delete_window(BaseWindowFactoryInterface *in_interface)
+    void delete_window(BaseWindowInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_app == nullptr)
         return;
       m_app->delete_window(in_interface);
+    }
+    // -------------------------------------------------------------------------
+    // update_window
+    // -------------------------------------------------------------------------
+    void update_window(BaseWindowInterface *in_interface)
+    {
+      std::lock_guard<std::mutex> lock(m_function_call_mutex);
+      if (m_app == nullptr)
+        return;
+      m_app->update_window(in_interface);
     }
 
     // static functions --------------------------------------------------------
@@ -419,13 +454,12 @@ namespace shl::gtk
     friend class ImageWindow;
   };
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   //	BaseObject class
-  // ---------------------------------------------------------------------------
-  class BaseObject : protected BaseWindowFactoryInterface
+  // ===========================================================================
+  class BaseObject : protected BaseWindowInterface
   {
   public:
-    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // ~BaseObject
     // -------------------------------------------------------------------------
@@ -472,6 +506,15 @@ namespace shl::gtk
       m_app_runner->create_window(this);
       wait_new_window();
     }
+    // -------------------------------------------------------------------------
+    // update
+    // -------------------------------------------------------------------------
+    virtual void update()
+    {
+      if (get_window() == nullptr)
+        return;
+      m_app_runner->update_window(this);
+    }
 
   protected:
     // constructors and destructor ---------------------------------------------
@@ -495,26 +538,644 @@ namespace shl::gtk
   //
 #endif  // SHL_BASE_GTK_CLASS_
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // Colormap class - colormap related utility class
+  // ===========================================================================
+  class  Colormap
+  {
+  public:
+    // Constatns ---------------------------------------------------------------
+    enum ColormapIndex
+    {
+      COLORMAP_NOT_SPECIFIED  = 0,
+
+      // Linear
+      COLORMAP_GrayScale     = 1,
+      COLORMAP_Jet,
+      COLORMAP_Rainbow,
+      COLORMAP_RainbowWide,
+      COLORMAP_Spectrum,
+      COLORMAP_SpectrumWide,
+      COLORMAP_Thermal,
+      COLORMAP_ThermalWide,
+
+      // Diverging
+      COLORMAP_CoolWarm,
+      COLORMAP_PurpleOrange,
+      COLORMAP_GreenPurple,
+      COLORMAP_BlueDarkYellow,
+      COLORMAP_GreenRed,
+
+      COLORMAP_ANY            = 32765,
+
+      // For Internal use only
+      COLORMAP_END           = -1
+    };
+
+    // Static Functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // get_colormap
+    // -------------------------------------------------------------------------
+    static void  get_colormap(ColormapIndex in_index,
+                              unsigned int in_color_num,
+                              uint8_t *out_colormap,
+                              unsigned int in_multi_num = 1,
+                              double in_gain = 1.0, int in_offset = 0)
+    {
+      unsigned int  i, index, num, total, offset, num_all;
+      std::vector<ColormapData> colormap_data;
+      double  ratio0, ratio1, offset_ratio;
+      const uint8_t    *rgb0 = NULL, *rgb1 = NULL;
+
+      get_multi_colormap_data(in_index, in_multi_num, colormap_data);
+      if (colormap_data.size() < 2 || in_gain <= 0.0 || in_color_num == 0)
+      {
+        clear_colormap(in_color_num, out_colormap);
+        return;
+      }
+
+      total = 0;
+      index = 0;
+      num = 0;
+      offset_ratio = (double )in_offset / (double )in_color_num;
+      ratio0 = colormap_data[index].ratio / in_gain - offset_ratio;
+      if (ratio0 > 0)
+      {
+        num = (int )((double )in_color_num * ratio0);
+        for (i = 0; i < num; i++)
+        {
+          out_colormap[0] = colormap_data[index].rgb.R;
+          out_colormap[1] = colormap_data[index].rgb.G;
+          out_colormap[2] = colormap_data[index].rgb.B;
+          out_colormap += 3;
+          total++;
+        }
+      }
+
+      while (index + 1 < colormap_data.size())
+      {
+        ratio1 = colormap_data[index + 1].ratio / in_gain - offset_ratio;
+        rgb0 = (const uint8_t *)&(colormap_data[index].rgb);
+        rgb1 = (const uint8_t *)&(colormap_data[index + 1].rgb);
+        if (ratio1 > 0)
+        {
+          if (ratio1 == 1.0)  // <- this is to absorb calculation error
+            num_all = in_color_num - total;
+          else
+            num_all = (int )(ratio1 * in_color_num) - (int )(ratio0 * in_color_num);  // Do not use (ratio1 - ratio0) * in_color_num
+          if (ratio0 < 0.0)
+          {
+            if (ratio1 < 1.0)
+              num = in_color_num * ratio1;
+            else
+              num = in_color_num;
+            offset = (int )((0.0 - ratio0) * (double )in_color_num);
+          }
+          else
+          {
+            num = num_all;
+            offset = 0;
+          }
+          if (num > in_color_num - total)
+            num = in_color_num - total;
+          switch (colormap_data[index].type)
+          {
+            case CMType_Linear:
+              calc_linear_colormap(rgb0, rgb1, offset, num_all,
+                                   num, out_colormap);
+              break;
+            case CMType_Diverging:
+              calc_diverging_colormap(rgb0, rgb1, offset, num_all,
+                                      num, out_colormap);
+              break;
+          }
+        }
+        ratio0 = ratio1;
+        out_colormap += num * 3;
+        total += num;
+        index++;
+        if (total == in_color_num)
+          break;
+      }
+
+      if (total < in_color_num)
+      {
+        num = in_color_num - total;
+        for (i = 0; i < num; i++)
+        {
+          out_colormap[0] = rgb1[0];
+          out_colormap[1] = rgb1[1];
+          out_colormap[2] = rgb1[2];
+          out_colormap += 3;
+        }
+      }
+    }
+    // -------------------------------------------------------------------------
+    // get_monomap
+    // -------------------------------------------------------------------------
+    static void  get_monomap(int in_color_num,
+                             uint8_t *out_colormap,
+                             double in_gamma = 1.0,
+                             double in_gain = 1.0, int in_offset = 0.0)
+    {
+      if (in_gamma <= 0.0 || in_color_num == 0 || in_gain <= 0.0)
+      {
+        clear_colormap(in_color_num, out_colormap);
+        return;
+      }
+
+      double pitch = 1.0 / (double )(in_color_num - 1.0);
+      in_gamma = 1.0 / in_gamma;
+      for (int i = 0; i < in_color_num; i++)
+      {
+        double v = pitch * (i + in_offset) * in_gain;
+        if (v < 0.0)
+          v = 0.0;
+        if (v > 1.0)
+          v = 1.0;
+        v = pow(v, in_gamma);
+        v = v * 255.0;
+        if (v >= 255)
+          v = 255;
+        out_colormap[0] = (uint8_t)v;
+        out_colormap[1] = (uint8_t)v;
+        out_colormap[2] = (uint8_t)v;
+        out_colormap += 3;
+      }
+    }
+    // -------------------------------------------------------------------------
+    // clear_colormap
+    // -------------------------------------------------------------------------
+    static void  clear_colormap(int in_color_num, uint8_t *out_colormap)
+    {
+      if (in_color_num == 0)
+        return;
+      std::memset(out_colormap, 0, in_color_num * 3);
+    }
+    // -------------------------------------------------------------------------
+    // calc_linear_colormap
+    // -------------------------------------------------------------------------
+    static void  calc_linear_colormap(const uint8_t *in_rgb0, const uint8_t *in_rgb1,
+                                      int in_offset, int in_color_num_all,
+                                      int in_map_num, uint8_t *out_colormap)
+    {
+      double  interp, k, v;
+
+      k = 1.0 / (double )(in_color_num_all - 1.0);
+      for (int i = 0; i < in_map_num; i++)
+      {
+        int t = i + in_offset;
+        if (t >= in_color_num_all) // Sannity check
+          t = in_color_num_all - 1;
+        interp = (double )t * k;
+        for (int j = 0; j < 3; j++)
+        {
+          v = (1.0 - interp) * in_rgb0[j] + interp * in_rgb1[j];
+          if (v > 255)
+            v = 255;
+          out_colormap[i * 3 + j] = (uint8_t)v;
+        }
+      }
+    }
+    // -------------------------------------------------------------------------
+    // calc_diverging_colormap
+    // -------------------------------------------------------------------------
+    static void  calc_diverging_colormap(const uint8_t *in_rgb0, const uint8_t *in_rgb1,
+                                         int in_offset, int in_color_num_all,
+                                         int in_map_num, uint8_t *out_color_map)
+    {
+      double  interp, k;
+
+      k = 1.0 / (double )(in_color_num_all - 1.0);
+      for (int i = 0; i < in_map_num; i++)
+      {
+        int t = i + in_offset;
+        if (t >= in_color_num_all) // Sanity check
+          t = in_color_num_all - 1;
+        interp = (double )t * k;
+        interpolate_color(in_rgb0, in_rgb1, interp, &(out_color_map[i * 3]));
+      }
+    }
+    // -------------------------------------------------------------------------
+    // interpolate_color
+    // -------------------------------------------------------------------------
+    static void  interpolate_color(const uint8_t *in_rgb0, const uint8_t *in_rgb1,
+                                   double in_interp, uint8_t *out_rgb)
+    {
+      double  msh0[3], msh1[3], msh[3], m;
+
+      conv_rgb_to_msh(in_rgb0, msh0);
+      conv_rgb_to_msh(in_rgb1, msh1);
+
+      if ((msh0[1] > 0.05 && msh1[1] > 0.05) && fabs(msh0[2] - msh1[2]) > 1.0472)
+      {
+        if (msh0[0] > msh1[0])
+          m = msh0[0];
+        else
+          m = msh1[0];
+        if (m < 88)
+          m = 88;
+        if (in_interp < 0.5)
+        {
+          msh1[0] = m;
+          msh1[1] = 0;
+          msh1[2] = 0;
+          in_interp = 2 * in_interp;
+        }
+        else
+        {
+          msh0[0] = m;
+          msh0[1] = 0;
+          msh0[2] = 0;
+          in_interp = 2 * in_interp - 1;
+        }
+      }
+
+      if (msh0[1] < 0.05 && msh1[1] > 0.05)
+        msh0[2] = adjust_hue(msh1, msh0[0]);
+      else if (msh0[1] > 0.05 && msh1[1] < 0.05)
+        msh1[2] = adjust_hue(msh0, msh1[0]);
+
+      for (int i = 0; i < 3; i++)
+        msh[i] = (1 - in_interp) * msh0[i] + in_interp * msh1[i];
+
+      conv_msh_to_rgb(msh, out_rgb);
+    }
+    // -------------------------------------------------------------------------
+    // adjust_hue
+    // -------------------------------------------------------------------------
+    static double  adjust_hue(const double *in_msh, double in_munsat)
+    {
+      if (in_msh[0] >= in_munsat)
+        return in_msh[2];
+
+      double  hSpin = in_msh[1] * sqrt(in_munsat * in_munsat - in_msh[0] * in_msh[0]) /
+                      (in_msh[0] * sin(in_msh[1]));
+
+      if (in_msh[2] > -1.0472)
+        return in_msh[2] + hSpin;
+      return in_msh[2] - hSpin;
+    }
+    // -------------------------------------------------------------------------
+    // conv_rgb_to_msh
+    // -------------------------------------------------------------------------
+    static void  conv_rgb_to_msh(const uint8_t *in_rgb, double *out_msh)
+    {
+      double  rgbL[3];
+      double  xyz[3];
+      double  lab[3];
+
+      conv_rgb_to_lin_rgb(in_rgb, rgbL);
+#ifdef BLEU_COLORMAP_USE_D50
+      conv_lin_rgb_to_xyz_d50(rgbL, xyz);
+      conv_xyz_d50_to_lab(xyz, lab);
+#else
+      conv_lin_rgb_to_xyz(rgbL, xyz);
+      conv_xyz_d65_to_lab(xyz, lab);
+#endif
+      conv_lab_to_msh(lab, out_msh);
+    }
+    // -------------------------------------------------------------------------
+    // conv_msh_to_rgb
+    // -------------------------------------------------------------------------
+    static void  conv_msh_to_rgb(const double *in_msh, uint8_t *out_rgb)
+    {
+      double  lab[3];
+      double  xyz[3];
+      double  rgbL[3];
+
+      conv_msh_to_Lab(in_msh, lab);
+#ifdef BLEU_COLORMAP_USE_D50
+      conv_lab_to_xyz_d50(lab, xyz);
+      conv_xyz_d50_to_lin_rgb(xyz, rgbL);
+#else
+      conv_lab_to_xyz_d65(lab, xyz);
+      conv_xyz_to_lin_rgb(xyz, rgbL);
+#endif
+      conv_lin_rgb_to_rgb(rgbL, out_rgb);
+    }
+    // -------------------------------------------------------------------------
+    // conv_lab_to_msh
+    // -------------------------------------------------------------------------
+    static void  conv_lab_to_msh(const double *in_lab, double *out_msh)
+    {
+      out_msh[0] = sqrt(in_lab[0] * in_lab[0] + in_lab[1] * in_lab[1] + in_lab[2] * in_lab[2]);
+      out_msh[1] = acos(in_lab[0] / out_msh[0]);
+      out_msh[2] = atan2(in_lab[2], in_lab[1]);
+    }
+    // -------------------------------------------------------------------------
+    // conv_msh_to_Lab
+    // -------------------------------------------------------------------------
+    static void  conv_msh_to_Lab(const double *in_msh, double *out_lab)
+    {
+      out_lab[0] = in_msh[0] * cos(in_msh[1]);
+      out_lab[1] = in_msh[0] * sin(in_msh[1]) * cos(in_msh[2]);
+      out_lab[2] = in_msh[0] * sin(in_msh[1]) * sin(in_msh[2]);
+    }
+    // -------------------------------------------------------------------------
+    // conv_xyz_d50_to_lab
+    // -------------------------------------------------------------------------
+    static void  conv_xyz_d50_to_lab(const double *in_xyz, double *out_lab)
+    {
+      const double  *wpXyz = get_d50_whitepoint_in_xyz();
+
+      out_lab[0] = 116 * lab_sub_func(in_xyz[1] / wpXyz[1]) - 16.0;
+      out_lab[1] = 500 * (lab_sub_func(in_xyz[0] / wpXyz[0]) - lab_sub_func(in_xyz[1] / wpXyz[1]));
+      out_lab[2] = 200 * (lab_sub_func(in_xyz[1] / wpXyz[1]) - lab_sub_func(in_xyz[2] / wpXyz[2]));
+    }
+    // -------------------------------------------------------------------------
+    // conv_lab_to_xyz_d50
+    // ------------------------------------------------------------------------
+    static void  conv_lab_to_xyz_d50(const double *in_lab, double *out_xyz)
+    {
+      const double  *wpXyz = get_d50_whitepoint_in_xyz();
+
+      out_xyz[0] = lab_sub_inv_func((in_lab[0] + 16) / 116.0 + (in_lab[1] / 500.0)) * wpXyz[0];
+      out_xyz[1] = lab_sub_inv_func((in_lab[0] + 16) / 116.0) * wpXyz[1];
+      out_xyz[2] = lab_sub_inv_func((in_lab[0] + 16) / 116.0 - (in_lab[2] / 200.0)) * wpXyz[2];
+    }
+    // -------------------------------------------------------------------------
+    // conv_xyz_d65_to_lab
+    // -------------------------------------------------------------------------
+    static void  conv_xyz_d65_to_lab(const double *in_xyz, double *out_lab)
+    {
+      const double  *wpXyz = get_d65_whitepoint_in_xyz();
+
+      out_lab[0] = 116 * lab_sub_func(in_xyz[1] / wpXyz[1]) - 16.0;
+      out_lab[1] = 500 * (lab_sub_func(in_xyz[0] / wpXyz[0]) - lab_sub_func(in_xyz[1] / wpXyz[1]));
+      out_lab[2] = 200 * (lab_sub_func(in_xyz[1] / wpXyz[1]) - lab_sub_func(in_xyz[2] / wpXyz[2]));
+    }
+    // -------------------------------------------------------------------------
+    // conv_lab_to_xyz_d65
+    // -------------------------------------------------------------------------
+    static void  conv_lab_to_xyz_d65(const double *in_lab, double *out_xyz)
+    {
+      const double  *wpXyz = get_d65_whitepoint_in_xyz();
+
+      out_xyz[0] = lab_sub_inv_func((in_lab[0] + 16) / 116.0 + (in_lab[1] / 500.0)) * wpXyz[0];
+      out_xyz[1] = lab_sub_inv_func((in_lab[0] + 16) / 116.0) * wpXyz[1];
+      out_xyz[2] = lab_sub_inv_func((in_lab[0] + 16) / 116.0 - (in_lab[2] / 200.0)) * wpXyz[2];
+    }
+    // -------------------------------------------------------------------------
+    // conv_lin_rgb_to_xyz (from sRGB linear (D65) to XYZ (D65) color space)
+    // -------------------------------------------------------------------------
+    static void  conv_lin_rgb_to_xyz(const double *in_rgb_l, double *out_xyz)
+    {
+      out_xyz[0] = 0.412391 * in_rgb_l[0] + 0.357584 * in_rgb_l[1] + 0.180481 * in_rgb_l[2];
+      out_xyz[1] = 0.212639 * in_rgb_l[0] + 0.715169 * in_rgb_l[1] + 0.072192 * in_rgb_l[2];
+      out_xyz[2] = 0.019331 * in_rgb_l[0] + 0.119195 * in_rgb_l[1] + 0.950532 * in_rgb_l[2];
+    }
+    // -------------------------------------------------------------------------
+    // conv_xyz_to_lin_rgb (from XYZ (D65) to sRGB linear (D65) color space)
+    // -------------------------------------------------------------------------
+    static void  conv_xyz_to_lin_rgb(const double *in_xyz, double *out_rgb_l)
+    {
+      out_rgb_l[0] = 3.240970 * in_xyz[0] - 1.537383 * in_xyz[1] - 0.498611 * in_xyz[2];
+      out_rgb_l[1] = -0.969244 * in_xyz[0] + 1.875968 * in_xyz[1] + 0.041555 * in_xyz[2];
+      out_rgb_l[2] = 0.055630 * in_xyz[0] - 0.203977 * in_xyz[1] + 1.056972 * in_xyz[2];
+    }
+    // -------------------------------------------------------------------------
+    // conv_lin_rgb_to_xyz_d50 (from sRGB linear (D65) to XYZ (D50) color space)
+    // -------------------------------------------------------------------------
+    static void  conv_lin_rgb_to_xyz_d50(const double *in_rgb_l, double *out_xyz)
+    {
+      out_xyz[0] = 0.436041 * in_rgb_l[0] + 0.385113 * in_rgb_l[1] + 0.143046 * in_rgb_l[2];
+      out_xyz[1] = 0.222485 * in_rgb_l[0] + 0.716905 * in_rgb_l[1] + 0.060610 * in_rgb_l[2];
+      out_xyz[2] = 0.013920 * in_rgb_l[0] + 0.097067 * in_rgb_l[1] + 0.713913 * in_rgb_l[2];
+    }
+    // -------------------------------------------------------------------------
+    // conv_xyz_d50_to_lin_rgb (from XYZ (D50) to sRGB linear (D65) color space)
+    // -------------------------------------------------------------------------
+    static void  conv_xyz_d50_to_lin_rgb(const double *in_xyz, double *out_rgb_l)
+    {
+      out_rgb_l[0] = 3.134187 * in_xyz[0] - 1.617209 * in_xyz[1] - 0.490694 * in_xyz[2];
+      out_rgb_l[1] = -0.978749 * in_xyz[0] + 1.916130 * in_xyz[1] + 0.033433 * in_xyz[2];
+      out_rgb_l[2] = 0.071964 * in_xyz[0] - 0.228994 * in_xyz[1] + 1.405754 * in_xyz[2];
+    }
+    // -------------------------------------------------------------------------
+    // conv_rgb_to_lin_rgb (from sRGB to linear sRGB)
+    // -------------------------------------------------------------------------
+    static void  conv_rgb_to_lin_rgb(const uint8_t *in_rgb, double *out_rgb_l)
+    {
+      double  value;
+
+      for (int i = 0; i < 3; i++)
+      {
+        value = (double )in_rgb[i] / 255.0;
+        if (value <= 0.040450)
+          value = value / 12.92;
+        else
+          value = pow((value + 0.055) / 1.055, 2.4);
+        out_rgb_l[i] = value;
+      }
+    }
+    // -------------------------------------------------------------------------
+    // conv_lin_rgb_to_rgb (from linear sRGB to sRGB)
+    // -------------------------------------------------------------------------
+    static void  conv_lin_rgb_to_rgb(const double *in_rgb_l, uint8_t *out_rgb)
+    {
+      double  value;
+
+      for (int i = 0; i < 3; i++)
+      {
+        value = in_rgb_l[i];
+        if (value <= 0.0031308)
+          value =  value * 12.92;
+        else
+          value = 1.055 * pow(value, 1.0 / 2.4) - 0.055;
+
+        value = value * 255;
+        if (value < 0)
+          value = 0;
+        if (value > 255)
+          value = 255;
+        out_rgb[i] = (uint8_t)value;
+      }
+    }
+
+  private:
+    // Constatns ---------------------------------------------------------------
+    enum ColorMapType
+    {
+      CMType_Linear         = 1,
+      CMType_Diverging
+    };
+    // Typedefs ----------------------------------------------------------------
+    typedef struct
+    {
+      uint8_t  R;
+      uint8_t  G;
+      uint8_t  B;
+    } ColormapRGB;
+    typedef struct
+    {
+      ColormapIndex  index;
+      double      ratio;
+      ColorMapType  type;
+      ColormapRGB    rgb;
+    } ColormapData;
+
+    // Static Functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // get_d50_whitepoint_in_xyz
+    // -------------------------------------------------------------------------
+    static const double  *get_d50_whitepoint_in_xyz()
+    {
+      static const double  sD50WhitePoint[3] = {0.9642, 1.0, 0.8249};
+      return sD50WhitePoint;
+    }
+    // -------------------------------------------------------------------------
+    // get_d50_whitepoint_in_xyz
+    // -------------------------------------------------------------------------
+    static const double  *get_d65_whitepoint_in_xyz()
+    {
+      static const double  sD65WhitePoint[3] = {0.95047, 1.0, 1.08883};
+      return sD65WhitePoint;
+    }
+    // -------------------------------------------------------------------------
+    // lab_sub_func
+    // -------------------------------------------------------------------------
+    static double  lab_sub_func(double inT)
+    {
+      if (inT > 0.008856)
+        return pow(inT, (1.0/3.0));
+      return 7.78703 * inT + 16.0 / 116.0;
+    }
+    // -------------------------------------------------------------------------
+    // lab_sub_inv_func
+    // -------------------------------------------------------------------------
+    static double  lab_sub_inv_func(double inT)
+    {
+      if (inT > 0.20689)
+        return pow(inT, 3);
+      return (inT - 16.0 / 116.0) / 7.78703;
+    }
+    // -------------------------------------------------------------------------
+    // get_multi_colormap_data
+    // -------------------------------------------------------------------------
+    static void get_multi_colormap_data(ColormapIndex in_index,
+                                        unsigned int in_multi_num,
+                                        std::vector<ColormapData> &out_data)
+    {
+      const ColormapData  *colormap_data;
+      unsigned int i, j, data_num;
+      double single_ratio;
+
+      colormap_data = get_colormap_data(in_index);
+      if (colormap_data == nullptr)
+        return;
+
+      data_num = 0;
+      while (colormap_data[data_num].index == in_index)
+        data_num++;
+      single_ratio = 1.0 / (double )in_multi_num;
+
+      out_data.clear();
+      for (i = 0; i < in_multi_num; i++)
+      {
+        for (j = 0; j < data_num; j++)
+        {
+          out_data.push_back(colormap_data[j]);
+          out_data.back().ratio = colormap_data[j].ratio * single_ratio + single_ratio * i;
+        }
+      }
+    }
+    // -------------------------------------------------------------------------
+    // get_colormap_data
+    // -------------------------------------------------------------------------
+    static const ColormapData  *get_colormap_data(ColormapIndex in_index)
+    {
+      static const ColormapData    s_colormap_data[] =
+      {
+        // GrayScale
+        {COLORMAP_GrayScale, 0.0, CMType_Linear, {0, 0, 0}},
+        {COLORMAP_GrayScale, 1.0, CMType_Linear, {255, 255, 255}},
+        // Jet
+        { COLORMAP_Jet, 0.0, CMType_Linear,{ 0, 0, 127 } },
+        { COLORMAP_Jet, 0.1, CMType_Linear,{ 0, 0, 255 } },
+        { COLORMAP_Jet, 0.35, CMType_Linear,{ 0, 255, 255 } },
+        { COLORMAP_Jet, 0.5, CMType_Linear,{ 0, 255, 0 } },
+        { COLORMAP_Jet, 0.65, CMType_Linear,{ 255, 255, 0 } },
+        { COLORMAP_Jet, 0.9, CMType_Linear,{ 255, 0, 0 } },
+        { COLORMAP_Jet, 1.0, CMType_Linear,{ 127, 0, 0 } },
+        // Rainbow
+        { COLORMAP_Rainbow, 0.0, CMType_Linear,{ 0, 0, 255 } },
+        { COLORMAP_Rainbow, 0.25, CMType_Linear,{ 0, 255, 255 } },
+        { COLORMAP_Rainbow, 0.5, CMType_Linear,{ 0, 255, 0 } },
+        { COLORMAP_Rainbow, 0.75, CMType_Linear,{ 255, 255, 0 } },
+        { COLORMAP_Rainbow, 1.0, CMType_Linear,{ 255, 0, 0 } },
+        // Rainbow Wide
+        { COLORMAP_RainbowWide, 0.0, CMType_Linear,{ 0, 0, 0 } },
+        { COLORMAP_RainbowWide, 0.1, CMType_Linear,{ 0, 0, 255 } },
+        { COLORMAP_RainbowWide, 0.3, CMType_Linear,{ 0, 255, 255 } },
+        { COLORMAP_RainbowWide, 0.5, CMType_Linear,{ 0, 255, 0 } },
+        { COLORMAP_RainbowWide, 0.7, CMType_Linear,{ 255, 255, 0 } },
+        { COLORMAP_RainbowWide, 0.9, CMType_Linear,{ 255, 0, 0 } },
+        { COLORMAP_RainbowWide, 1.0, CMType_Linear,{ 255, 255, 255 } },
+        // Spectrum
+        { COLORMAP_Spectrum, 0.0, CMType_Linear,{ 255, 0, 255 } },
+        { COLORMAP_Spectrum, 0.1, CMType_Linear,{ 0, 0, 255 } },
+        { COLORMAP_Spectrum, 0.3, CMType_Linear,{ 0, 255, 255 } },
+        { COLORMAP_Spectrum, 0.45, CMType_Linear,{ 0, 255, 0 } },
+        { COLORMAP_Spectrum, 0.6, CMType_Linear,{ 255, 255, 0 } },
+        { COLORMAP_Spectrum, 1.0, CMType_Linear,{ 255, 0, 0 } },
+        // Spectrum Wide
+        { COLORMAP_SpectrumWide, 0.0, CMType_Linear,{ 0, 0, 0 } },
+        { COLORMAP_SpectrumWide, 0.1, CMType_Linear,{ 150, 0, 150 } },
+        { COLORMAP_SpectrumWide, 0.2, CMType_Linear,{ 0, 0, 255 } },
+        { COLORMAP_SpectrumWide, 0.35, CMType_Linear,{ 0, 255, 255 } },
+        { COLORMAP_SpectrumWide, 0.5, CMType_Linear,{ 0, 255, 0 } },
+        { COLORMAP_SpectrumWide, 0.6, CMType_Linear,{ 255, 255, 0 } },
+        { COLORMAP_SpectrumWide, 0.9, CMType_Linear,{ 255, 0, 0 } },
+        { COLORMAP_SpectrumWide, 1.0, CMType_Linear,{ 255, 255, 255 } },
+        // Thermal
+        { COLORMAP_Thermal, 0.0, CMType_Linear,{  0, 0, 255 } },
+        { COLORMAP_Thermal, 0.5, CMType_Linear,{ 255, 0, 255 } },
+        { COLORMAP_Thermal, 1.0, CMType_Linear,{ 255, 255, 0 } },
+        // Thermal Wide
+        { COLORMAP_ThermalWide, 0.0, CMType_Linear,{  0, 0, 0 } },
+        { COLORMAP_ThermalWide, 0.05, CMType_Linear,{  0, 0, 255 } },
+        { COLORMAP_ThermalWide, 0.5, CMType_Linear,{ 255, 0, 255 } },
+        { COLORMAP_ThermalWide, 0.95, CMType_Linear,{ 255, 255, 0 } },
+        { COLORMAP_ThermalWide, 1.0, CMType_Linear,{ 255, 255, 255 } },
+
+        // Cool Warm
+        { COLORMAP_CoolWarm, 0.0, CMType_Diverging,{ 59, 76, 192 } },
+        { COLORMAP_CoolWarm, 1.0, CMType_Diverging,{ 180, 4, 38 } },
+        // PurpleOrange
+        { COLORMAP_PurpleOrange, 0.0, CMType_Diverging,{ 111, 78, 161 } },
+        { COLORMAP_PurpleOrange, 1.0, CMType_Diverging,{ 193, 85, 11 } },
+        // GreenPurple
+        { COLORMAP_GreenPurple, 0.0, CMType_Diverging,{ 21, 135, 51 } },
+        { COLORMAP_GreenPurple, 1.0, CMType_Diverging,{ 111, 78, 161 } },
+        // Blue DarkYellow
+        { COLORMAP_BlueDarkYellow, 0.0, CMType_Diverging,{ 55, 133, 232 } },
+        { COLORMAP_BlueDarkYellow, 1.0, CMType_Diverging,{ 172, 125, 23 } },
+        // Green Red
+        { COLORMAP_GreenRed, 0.0, CMType_Diverging,{ 21, 135, 51 } },
+        { COLORMAP_GreenRed, 1.0, CMType_Diverging,{ 193, 54, 59 } },
+
+        // End mark (Don't remove this)
+        {COLORMAP_END, 0.0, CMType_Linear, {0, 0, 0 }}
+      };
+      const ColormapData  *colormap_data = s_colormap_data;
+
+      while (colormap_data->index != in_index)
+      {
+        colormap_data++;
+        if (colormap_data->index == COLORMAP_END)
+          return nullptr;
+      }
+      return colormap_data;
+    }
+  };
+
+  // ===========================================================================
   //	ImageData class
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   class ImageData
   {
   public:
-    // constructors and destructor ---------------------------------------------
-    // -------------------------------------------------------------------------
-    // ImageData
-    // -------------------------------------------------------------------------
-    ImageData()
-    {
-      m_allocated_image_buffer_ptr = nullptr;
-      m_external_image_buffer_ptr = nullptr;
-      m_image_buffer_size = 0;
-      m_image_width = 0;
-      m_image_height = 0;
-      m_is_mono = false;
-      m_is_image_modified = false;
-    }
     // -------------------------------------------------------------------------
     // ~ImageData
     // -------------------------------------------------------------------------
@@ -572,7 +1233,7 @@ namespace shl::gtk
         return m_allocated_image_buffer_ptr;
       return m_external_image_buffer_ptr;
     }
-    bool update_image_buffer_ptr(uint8_t *in_buffer_ptr, bool in_redraw_image = true)
+    bool update_image_buffer_ptr(uint8_t *in_buffer_ptr)
     {
       if (m_external_image_buffer_ptr == nullptr)
       {
@@ -582,25 +1243,9 @@ namespace shl::gtk
       //
       m_external_image_buffer_ptr = in_buffer_ptr;
       m_is_image_modified = true;
-      if (in_redraw_image)
-        redraw_image();
       return true;
     }
-    bool update_pixbuf(bool in_force_update = false)
-    {
-      if (in_force_update == false && m_is_image_modified == false)
-        return false;
-      if (check_image_data() == false)
-        return false;
-      if (m_pixbuf->get_width() != m_image_width ||
-          m_pixbuf->get_height() != m_image_height)
-        return false;
-      //
-      //mActiveConverter->convert(getImageBufferPixelPtr(), m_pixbuf->get_pixels());
-      m_is_image_modified = false;
-      return true;
-    }
-    bool copy_to_image_buffer(const uint8_t *in_src_ptr, bool in_redraw_image = true)
+    bool copy_to_image_buffer(const uint8_t *in_src_ptr)
     {
       uint8_t *buffer = get_image_buffer_ptr();
       if (in_src_ptr == nullptr || m_image_buffer_size == 0 || buffer == nullptr)
@@ -608,16 +1253,26 @@ namespace shl::gtk
       //
       ::memcpy(buffer, in_src_ptr, m_image_buffer_size);
       m_is_image_modified = true;
-      if (in_redraw_image)
-        redraw_image();
       return true;
     }
     void mark_as_image_modified()
     {
       m_is_image_modified = true;
     }
-    void redraw_image(bool in_force = false)
+    void clear_image_modified()
     {
+      m_is_image_modified = false;
+    }
+    [[nodiscard]] Colormap::ColormapIndex get_colormap_index() const
+    {
+      return m_colormap_index;
+    }
+    void set_colormap_index(Colormap::ColormapIndex in_index)
+    {
+      if (m_colormap_index == in_index)
+        return;
+      m_colormap_index = in_index;
+      mark_as_image_modified();
     }
     [[nodiscard]] bool is_image_modified() const
     {
@@ -631,23 +1286,38 @@ namespace shl::gtk
     {
       return m_image_height;
     }
+    [[nodiscard]] bool is_mono() const
+    {
+      return m_is_mono;
+    }
     [[nodiscard]] size_t get_image_buffer_size() const
     {
       return m_image_buffer_size;
     }
     [[nodiscard]] bool check_image_data() const
     {
-      if (m_allocated_image_buffer_ptr == nullptr || m_external_image_buffer_ptr == nullptr)
+      if (m_allocated_image_buffer_ptr == nullptr && m_external_image_buffer_ptr == nullptr)
         return false;
       if (m_image_width == 0 || m_image_height == 0 || m_image_buffer_size == 0)
-        return false;
-      if (!m_pixbuf)
         return false;
       return true;
     }
 
   protected:
-    Glib::RefPtr<Gdk::Pixbuf>  m_pixbuf;
+    // -------------------------------------------------------------------------
+    // ImageData
+    // -------------------------------------------------------------------------
+    ImageData()
+    {
+      m_allocated_image_buffer_ptr = nullptr;
+      m_external_image_buffer_ptr = nullptr;
+      m_image_buffer_size = 0;
+      m_image_width = 0;
+      m_image_height = 0;
+      m_is_mono = false;
+      m_is_image_modified = false;
+      m_colormap_index = Colormap::COLORMAP_GrayScale;
+    }
 
     // Member functions --------------------------------------------------------
     void cleanup_buffers()
@@ -670,31 +1340,44 @@ namespace shl::gtk
       if (m_is_mono == false)
         m_image_buffer_size *= 3;
       //
-      m_pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB , false, 8,
-                                     m_image_width, m_image_height);
     }
 
   private:
+    // member variables --------------------------------------------------------
     uint8_t *m_allocated_image_buffer_ptr;
     uint8_t *m_external_image_buffer_ptr;
     size_t m_image_buffer_size;
     int   m_image_width;
     int   m_image_height;
     bool  m_is_mono;
+    Colormap::ColormapIndex m_colormap_index;
+
     bool  m_is_image_modified;
 
     // friend classes ----------------------------------------------------------
     friend class ImageView;
   };
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // ImageView class
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // Note: Order of Scrollable -> Widget is very important
+  //
   class ImageView : virtual public Gtk::Scrollable, virtual public Gtk::Widget
   {
+    // Class related macros
+    #define IM_VIEW_COLORMAP_COLOR_NUM      256
+    #define IM_VIEW_COLORMAP_DATA_SIZE      (IM_VIEW_COLORMAP_COLOR_NUM * 3)
+
   public:
-    // Constructors and Destructor ---------------------------------------------
+    // -------------------------------------------------------------------------
+    // ~ImageView
+    // -------------------------------------------------------------------------
+    ~ImageView() override
+    {
+    }
+
+  protected:
     // -------------------------------------------------------------------------
     // ImageView
     // -------------------------------------------------------------------------
@@ -732,18 +1415,12 @@ namespace shl::gtk
       m_image_data_ptr = nullptr;
       m_is_image_size_changed = false;
 
+      m_colormap_index = Colormap::COLORMAP_NOT_SPECIFIED;
+
       add_events(Gdk::SCROLL_MASK |
                  Gdk::BUTTON_MOTION_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                  Gdk::POINTER_MOTION_MASK);
     }
-    // -------------------------------------------------------------------------
-    // ~ImageView
-    // -------------------------------------------------------------------------
-    ~ImageView() override
-    {
-    }
-
-  protected:
     // Member functions --------------------------------------------------------
     // -------------------------------------------------------------------------
     // set_image_data
@@ -751,46 +1428,84 @@ namespace shl::gtk
     void  set_image_data(ImageData *inImageDataPtr)
     {
       m_image_data_ptr = inImageDataPtr;
-      mark_as_image_size_changed();
-    }
-    // -------------------------------------------------------------------------
-    // queue_redraw_widget
-    // -------------------------------------------------------------------------
-    void  queue_redraw_widget()
-    {
       queue_draw();
     }
     // -------------------------------------------------------------------------
-    // mark_as_image_size_changed
+    // update_widget
     // -------------------------------------------------------------------------
-    void  mark_as_image_size_changed()
+    /*bool  update_widget()
     {
-      m_is_image_size_changed = true;
+      if (update_pixbuf() == false)
+        return false;
       queue_draw();
-    }
+      return true;
+    }*/
     // -------------------------------------------------------------------------
-    // is_image_size_changed
+    // update_pixbuf
     // -------------------------------------------------------------------------
-    bool  is_image_size_changed() const
-    {
-      return m_is_image_size_changed;
-    }
-    // -------------------------------------------------------------------------
-    // update_size_using_image_data
-    // -------------------------------------------------------------------------
-    bool  update_size_using_image_data()
+    bool  update_pixbuf()
     {
       if (m_image_data_ptr == nullptr)
         return false;
       if (m_image_data_ptr->check_image_data() == false)
         return false;
-      //
-      m_org_width   = m_image_data_ptr->get_image_width();
-      m_org_height  = m_image_data_ptr->get_image_height();
-      m_width       = m_org_width;
-      m_height      = m_org_height;
-      configure_h_adjustment();
-      configure_v_adjustment();
+      bool need_to_create = true;
+      if (m_pixbuf)
+      {
+        if (m_pixbuf->get_width() == m_image_data_ptr->get_image_width() &&
+            m_pixbuf->get_height() == m_image_data_ptr->get_image_height())
+          need_to_create = false;
+      }
+      if (need_to_create)
+      {
+        m_org_width   = m_image_data_ptr->get_image_width();
+        m_org_height  = m_image_data_ptr->get_image_height();
+        m_width       = m_org_width;
+        m_height      = m_org_height;
+        configure_h_adjustment();
+        configure_v_adjustment();
+        m_pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8,
+                                       m_image_data_ptr->get_image_width(),
+                                       m_image_data_ptr->get_image_height());
+        if (!m_pixbuf)
+          return false;
+      }
+      else
+      {
+        if (m_image_data_ptr->is_image_modified() == false)
+          return true;
+      }
+      if (m_image_data_ptr->is_mono())
+      {
+        if (m_colormap_index != m_image_data_ptr->get_colormap_index())
+        {
+          m_colormap_index = m_image_data_ptr->get_colormap_index();
+          Colormap::get_colormap(m_colormap_index, IM_VIEW_COLORMAP_COLOR_NUM,
+                                 m_colormap);
+        }
+        size_t data_size = m_image_data_ptr->get_image_buffer_size();
+        uint8_t *src = m_image_data_ptr->get_image_buffer_ptr();
+        uint8_t *dst = m_pixbuf->get_pixels();
+        for (int i = 0; i < data_size; i++)
+        {
+          size_t index = *src * 3;
+          src++;
+          //
+          *dst = m_colormap[index];
+          dst++; index++;
+          *dst = m_colormap[index];
+          dst++; index++;
+          *dst = m_colormap[index];
+          dst++;
+        }
+      }
+      else
+      {
+        ::memcpy(m_pixbuf->get_pixels(),
+                 m_image_data_ptr->get_image_buffer_ptr(),
+                 m_image_data_ptr->get_image_buffer_size());
+      }
+      m_image_data_ptr->clear_image_modified();
       return true;
     }
     // -------------------------------------------------------------------------
@@ -798,16 +1513,7 @@ namespace shl::gtk
     // -------------------------------------------------------------------------
     bool on_draw(const Cairo::RefPtr<Cairo::Context>& cr) override
     {
-      if (m_image_data_ptr == nullptr)
-        return false;
-      if (m_image_data_ptr->check_image_data() == false)
-        return false;
-      if (m_is_image_size_changed)
-      {
-        update_size_using_image_data();
-        m_is_image_size_changed = false;
-      }
-      if (m_image_data_ptr->update_pixbuf() == false)
+      if (update_pixbuf() == false)
         return false;
       //
       double x = 0, y = 0;
@@ -825,14 +1531,14 @@ namespace shl::gtk
         cr->set_identity_matrix();
         cr->translate(x, y);
         cr->scale(m_zoom, m_zoom);
-        Gdk::Cairo::set_source_pixbuf(cr, m_image_data_ptr->m_pixbuf, 0, 0);
+        Gdk::Cairo::set_source_pixbuf(cr, m_pixbuf, 0, 0);
         Cairo::SurfacePattern pattern(cr->get_source()->cobj());
         pattern.set_filter(Cairo::Filter::FILTER_NEAREST);
       }
       else
       {
         Gdk::Cairo::set_source_pixbuf(cr,
-                                      m_image_data_ptr->m_pixbuf->scale_simple(
+                                      m_pixbuf->scale_simple(
                                               m_width, m_height,
                                               Gdk::INTERP_NEAREST),
                                       x, y);
@@ -1149,6 +1855,7 @@ namespace shl::gtk
       queue_draw();
     }
 
+  private:
     // Member variables --------------------------------------------------------
     Glib::Property<Glib::RefPtr<Gtk::Adjustment>> m_h_adjustment;
     Glib::Property<Glib::RefPtr<Gtk::Adjustment>> m_v_adjustment;
@@ -1171,8 +1878,13 @@ namespace shl::gtk
     ImageData *m_image_data_ptr;
     bool  m_is_image_size_changed;
 
-    Glib::RefPtr<Gdk::Pixbuf>  m_pixbuf;
+    Colormap::ColormapIndex m_colormap_index;
+    uint8_t m_colormap[IM_VIEW_COLORMAP_DATA_SIZE];
+
     Glib::RefPtr<Gdk::Window> m_window;
+    Glib::RefPtr<Gdk::Pixbuf> m_pixbuf;
+
+    friend class ImageMainWindow;
   };
 
   // ---------------------------------------------------------------------------
@@ -1181,22 +1893,6 @@ namespace shl::gtk
   class ImageMainWindow : public Gtk::Window
   {
   public:
-    // constructors and destructor ---------------------------------------------
-    // -------------------------------------------------------------------------
-    // ImageMainWindow
-    // -------------------------------------------------------------------------
-    ImageMainWindow() :
-      m_box(Gtk::Orientation::ORIENTATION_VERTICAL , 0),
-      m_status_bar("Statusbar")
-    {
-      m_image_data_ptr = nullptr;
-      m_scr_win.add(mImageView);
-      m_box.pack_start(m_scr_win, true, true, 0);
-      m_box.pack_end(m_status_bar, false, false, 0);
-      add(m_box);
-      resize(300, 300);
-      show_all_children();
-    }
     // -------------------------------------------------------------------------
     // ~ImageMainWindow
     // -------------------------------------------------------------------------
@@ -1204,21 +1900,45 @@ namespace shl::gtk
     {
       SHL_DBG_OUT("ImageMainWindow was deleted");
     }
+
+  protected:
+    // -------------------------------------------------------------------------
+    // ImageMainWindow
+    // -------------------------------------------------------------------------
+    ImageMainWindow() :
+            m_box(Gtk::Orientation::ORIENTATION_VERTICAL , 0),
+            m_status_bar("Statusbar")
+    {
+      m_scr_win.add(mImageView);
+      m_box.pack_start(m_scr_win, true, true, 0);
+      m_box.pack_end(m_status_bar, false, false, 0);
+      add(m_box);
+      resize(300, 300);
+      show_all_children();
+    }
     // Member functions ----------------------------------------------------------
     // ---------------------------------------------------------------------------
     // set_image_data
     // ---------------------------------------------------------------------------
     void set_image_data(ImageData *in_image_data_ptr)
     {
-      m_image_data_ptr = in_image_data_ptr;
+      mImageView.set_image_data(in_image_data_ptr);
+    }
+    // ---------------------------------------------------------------------------
+    // update
+    // ---------------------------------------------------------------------------
+    void update()
+    {
+      //mImageView.update_widget();
+      mImageView.queue_draw();
     }
 
+  private:
+    // member variables --------------------------------------------------------
     Gtk::Box            m_box;
     Gtk::ScrolledWindow m_scr_win;
     Gtk::Label          m_status_bar;
-    shl::gtk::ImageView   mImageView;
-    //
-    ImageData   *m_image_data_ptr;
+    shl::gtk::ImageView mImageView;
 
     friend class ImageWindow;
   };
@@ -1282,6 +2002,12 @@ namespace shl::gtk
     {
       std::unique_lock<std::mutex> lock(m_delete_window_mutex);
       m_delete_window_cond.wait(lock);
+    }
+    void update_window() override
+    {
+      if (m_window == nullptr)
+        return;
+      m_window->update();
     }
 
   private:
