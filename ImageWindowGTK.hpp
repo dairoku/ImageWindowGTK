@@ -155,39 +155,41 @@ namespace shl::gtk
                              Gio::APPLICATION_NON_UNIQUE),
                              m_quit(false)
     {
-      Glib::signal_idle().connect( sigc::mem_fun(*this, &BaseApp::on_idle) );
     }
 
     // Member functions --------------------------------------------------------
     // -------------------------------------------------------------------------
-    // base_app_create_window
+    // post_create_window
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void create_window(BaseAppWindowInterface *in_interface)
+    void post_create_window(BaseAppWindowInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       m_create_win_queue.push(in_interface);
+      Glib::signal_idle().connect( sigc::mem_fun(*this, &BaseApp::on_idle) );
     }
     // -------------------------------------------------------------------------
-    // base_app_delete_window
+    // post_delete_window
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void delete_window(BaseAppWindowInterface *in_interface)
+    void post_delete_window(BaseAppWindowInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
       m_delete_win_queue.push(in_interface);
+      Glib::signal_idle().connect( sigc::mem_fun(*this, &BaseApp::on_idle) );
     }
     // -------------------------------------------------------------------------
-    // base_app_update_window
+    // post_update_window
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void update_window(BaseAppWindowInterface *in_interface)
+    void post_update_window(BaseAppWindowInterface *in_interface)
     {
       std::lock_guard<std::mutex> lock(m_update_win_queue_mutex);
       m_update_win_queue.push(in_interface);
+      Glib::signal_idle().connect( sigc::mem_fun(*this, &BaseApp::on_idle) );
     }
     // -------------------------------------------------------------------------
     // post_quit_app
@@ -198,6 +200,7 @@ namespace shl::gtk
     {
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       m_quit = true;
+      Glib::signal_idle().connect( sigc::mem_fun(*this, &BaseApp::on_idle) );
     }
     // -------------------------------------------------------------------------
     // get_window_num
@@ -246,12 +249,13 @@ namespace shl::gtk
     // -------------------------------------------------------------------------
     bool on_idle()
     {
+      SHL_DBG_OUT("on_idle() was called");
       process_create_windows();
       process_update_windows();
       process_delete_windows();
       if (m_quit)
         quit();
-      return true;
+      return false;
     }
     // -------------------------------------------------------------------------
     // process_create_windows
@@ -396,7 +400,7 @@ namespace shl::gtk
         m_app = new BaseApp();
         m_app->hold();
       }
-      m_app->create_window(in_interface);
+      m_app->post_create_window(in_interface);
       if (m_thread != nullptr)
         return;
       m_thread = new std::thread(thread_func, this);
@@ -409,7 +413,7 @@ namespace shl::gtk
       std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_app == nullptr)
         return;
-      m_app->delete_window(in_interface);
+      m_app->post_delete_window(in_interface);
     }
     // -------------------------------------------------------------------------
     // base_app_update_window
@@ -419,7 +423,7 @@ namespace shl::gtk
       std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_app == nullptr)
         return;
-      m_app->update_window(in_interface);
+      m_app->post_update_window(in_interface);
     }
 
     // static functions --------------------------------------------------------
@@ -1882,7 +1886,7 @@ namespace shl::gtk
     bool  m_is_image_size_changed;
 
     Colormap::ColormapIndex m_colormap_index;
-    uint8_t m_colormap[IM_VIEW_COLORMAP_DATA_SIZE];
+    uint8_t m_colormap[IM_VIEW_COLORMAP_DATA_SIZE] = {};
 
     Glib::RefPtr<Gdk::Window> m_window;
     Glib::RefPtr<Gdk::Pixbuf> m_pixbuf;
