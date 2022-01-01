@@ -1973,13 +1973,39 @@ namespace image   // shl::gtk::image
     // MainWindow
     // -------------------------------------------------------------------------
     MainWindow() :
+            m_header_left_box(Gtk::Orientation::ORIENTATION_HORIZONTAL),
+            m_header_right_box(Gtk::Orientation::ORIENTATION_HORIZONTAL),
             m_box(Gtk::Orientation::ORIENTATION_VERTICAL, 0),
             m_status_bar("Statusbar")
     {
+      m_zoom_out_button.set_image_from_icon_name("zoom-out-symbolic");
+      m_zoom_entry.set_input_purpose(Gtk::INPUT_PURPOSE_DIGITS);
+      m_zoom_entry.set_max_length(5);
+      m_zoom_entry.set_width_chars(9);
+      m_zoom_entry.set_icon_from_icon_name("go-down-symbolic", Gtk::ENTRY_ICON_SECONDARY);
+      m_zoom_in_button.set_image_from_icon_name("zoom-in-symbolic");
+      m_header_left_box.pack_start(m_zoom_out_button);
+      m_header_left_box.add(m_zoom_entry);
+      m_header_left_box.pack_end(m_zoom_in_button);
+
+      m_title.set_label("ImageWindowUp");
+      m_full_button.set_image_from_icon_name("view-fullscreen-symbolic");
+      m_menu_button.set_use_popover(true);
+      m_menu_button.set_image_from_icon_name("open-menu-symbolic");
+      m_header_right_box.pack_start(m_full_button);
+      m_header_right_box.pack_end(m_menu_button);
+      //
+      m_header.set_show_close_button(true);
+      m_header.set_custom_title(m_title);
+      m_header.pack_start(m_header_left_box);
+      m_header.pack_end(m_header_right_box);
+      set_titlebar(m_header);
+      //
       m_scr_win.add(mImageView);
       m_box.pack_start(m_scr_win, true, true, 0);
       m_box.pack_end(m_status_bar, false, false, 0);
-      Gtk::Window::add(m_box);
+      this->add(m_box);
+      //Gtk::Window::add(m_box);
       resize(300, 300);
       show_all_children();
     }
@@ -2004,6 +2030,15 @@ namespace image   // shl::gtk::image
 
   private:
     // member variables --------------------------------------------------------
+    Gtk::Button m_zoom_in_button;
+    Gtk::Entry m_zoom_entry;
+    Gtk::Button m_zoom_out_button;
+    Gtk::Box m_header_left_box;
+    Gtk::Label m_title;
+    Gtk::Button m_full_button;
+    Gtk::MenuButton m_menu_button;
+    Gtk::Box m_header_right_box;
+    Gtk::HeaderBar m_header;
     Gtk::Box m_box;
     Gtk::ScrolledWindow m_scr_win;
     Gtk::Label m_status_bar;
