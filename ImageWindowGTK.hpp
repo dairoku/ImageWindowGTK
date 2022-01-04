@@ -1587,7 +1587,7 @@ namespace image   // shl::gtk::image
       //
       if (m_zoom >= 1)
       {
-        cr->set_identity_matrix();
+        //cr->set_identity_matrix();
         cr->translate(x, y);
         cr->scale(m_zoom, m_zoom);
         Gdk::Cairo::set_source_pixbuf(cr, m_pixbuf, 0, 0);
@@ -1786,7 +1786,6 @@ namespace image   // shl::gtk::image
           m_offset_y = 0;
       }
       configure_v_adjustment();
-
       queue_draw();
       return true;
     }
@@ -1969,6 +1968,30 @@ namespace image   // shl::gtk::image
     }
 
   protected:
+    void on_menu_save() {printf("I am here\n");}
+    void on_menu_save_as() {printf("I am here as\n");}
+    void on_menu_about() {printf("I am here about\n");}
+    void on_button_zoom_out()
+    {
+      printf("I am here out\n");
+    }
+    void on_button_zoom_entry(Gtk::EntryIconPosition icon_position, const GdkEventButton* event)
+    {
+      if (!m_zoom_menu->get_attach_widget())
+        m_zoom_menu->attach_to_widget(*this);
+      //m_zoom_menu->popup(event->button, event->time);
+      m_zoom_menu->popup_at_widget(&m_zoom_entry, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, nullptr);
+      printf("I am here entry\n");
+    }
+    void on_button_zoom_in()
+    {
+      printf("I am here in\n");
+    }
+    void on_button_full()
+    {
+      printf("I am here full\n");
+    }
+
     // -------------------------------------------------------------------------
     // MainWindow
     // -------------------------------------------------------------------------
@@ -1979,33 +2002,72 @@ namespace image   // shl::gtk::image
             m_status_bar("Statusbar")
     {
       m_zoom_out_button.set_image_from_icon_name("zoom-out-symbolic");
+      m_zoom_out_button.signal_clicked().connect(
+              sigc::mem_fun(*this, &MainWindow::on_button_zoom_out));
       m_zoom_entry.set_input_purpose(Gtk::INPUT_PURPOSE_DIGITS);
       m_zoom_entry.set_max_length(5);
       m_zoom_entry.set_width_chars(9);
       m_zoom_entry.set_icon_from_icon_name("go-down-symbolic", Gtk::ENTRY_ICON_SECONDARY);
+      m_zoom_entry.set_alignment(1);
+      m_zoom_entry.signal_icon_press().connect(
+              sigc::mem_fun(*this, &MainWindow::on_button_zoom_entry));
       m_zoom_in_button.set_image_from_icon_name("zoom-in-symbolic");
+      m_zoom_in_button.signal_clicked().connect(
+              sigc::mem_fun(*this, &MainWindow::on_button_zoom_in));
       m_header_left_box.pack_start(m_zoom_out_button);
       m_header_left_box.add(m_zoom_entry);
       m_header_left_box.pack_end(m_zoom_in_button);
-
+      //
+      m_action_group = Gtk::ActionGroup::create();
+      m_action_group->add(Gtk::Action::create("Save", "Save"),
+                          sigc::mem_fun(*this, &MainWindow::on_menu_save));
+      m_action_group->add(Gtk::Action::create("SaveAs", "Save As..."),
+                          sigc::mem_fun(*this, &MainWindow::on_menu_save_as));
+      m_action_group->add(Gtk::Action::create("About", "About"),
+                          sigc::mem_fun(*this, &MainWindow::on_menu_about));
+      m_menu = Gtk::manage(new Gtk::Menu());
+      const char *action_table[] = {"Save", "SaveAs", "About", ""};
+      int index = 0;
+      while (action_table[index][0] != 0)
+      {
+        Glib::RefPtr<Gtk::Action> action;
+        action = m_action_group->get_action(action_table[index]);
+        action->set_accel_group(get_accel_group());
+        m_menu->append(*Gtk::manage(action->create_menu_item()));
+        index++;
+      }
+      m_menu_button.set_menu(*m_menu);
+      //
+      m_zoom_menu = Gtk::manage(new Gtk::Menu());
+      index = 0;
+      while (action_table[index][0] != 0)
+      {
+        Glib::RefPtr<Gtk::Action> action;
+        action = m_action_group->get_action(action_table[index]);
+        action->set_accel_group(get_accel_group());
+        m_zoom_menu->append(*Gtk::manage(action->create_menu_item()));
+        index++;
+      }
+      //
       m_title.set_label("ImageWindowUp");
       m_full_button.set_image_from_icon_name("view-fullscreen-symbolic");
+      m_full_button.signal_clicked().connect(
+              sigc::mem_fun(*this, &MainWindow::on_button_full));
       m_menu_button.set_use_popover(true);
       m_menu_button.set_image_from_icon_name("open-menu-symbolic");
       m_header_right_box.pack_start(m_full_button);
       m_header_right_box.pack_end(m_menu_button);
       //
+      this->set_titlebar(m_header);
       m_header.set_show_close_button(true);
       m_header.set_custom_title(m_title);
       m_header.pack_start(m_header_left_box);
       m_header.pack_end(m_header_right_box);
-      set_titlebar(m_header);
       //
-      m_scr_win.add(mImageView);
-      m_box.pack_start(m_scr_win, true, true, 0);
-      m_box.pack_end(m_status_bar, false, false, 0);
       this->add(m_box);
-      //Gtk::Window::add(m_box);
+      m_scr_win.add(m_image_view);
+      m_box.pack_start(m_scr_win, true, true, 0);
+      m_box.pack_start(m_status_bar, false, false, 0);
       resize(300, 300);
       show_all_children();
     }
@@ -2016,7 +2078,7 @@ namespace image   // shl::gtk::image
     // ---------------------------------------------------------------------------
     void set_image_data(Data *in_image_data_ptr)
     {
-      mImageView.set_image_data(in_image_data_ptr);
+      m_image_view.set_image_data(in_image_data_ptr);
     }
 
     // ---------------------------------------------------------------------------
@@ -2024,25 +2086,30 @@ namespace image   // shl::gtk::image
     // ---------------------------------------------------------------------------
     void update()
     {
-      //mImageView.update_widget();
-      mImageView.queue_draw();
+      //m_image_view.update_widget();
+      m_image_view.queue_draw();
     }
 
   private:
     // member variables --------------------------------------------------------
     Gtk::Button m_zoom_in_button;
     Gtk::Entry m_zoom_entry;
+    //Glib::RefPtr<Gtk::PopoverMenu> m_popover;
+    //Gtk::Popover *m_popover;
+    Gtk::Menu *m_zoom_menu;
     Gtk::Button m_zoom_out_button;
     Gtk::Box m_header_left_box;
     Gtk::Label m_title;
     Gtk::Button m_full_button;
+    Gtk::Menu *m_menu;
+    Glib::RefPtr<Gtk::ActionGroup> m_action_group;
     Gtk::MenuButton m_menu_button;
     Gtk::Box m_header_right_box;
     Gtk::HeaderBar m_header;
     Gtk::Box m_box;
     Gtk::ScrolledWindow m_scr_win;
     Gtk::Label m_status_bar;
-    shl::gtk::image::View mImageView;
+    shl::gtk::image::View m_image_view;
 
     friend class shl::gtk::ImageWindow;
   };
