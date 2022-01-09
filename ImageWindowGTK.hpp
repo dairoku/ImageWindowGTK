@@ -1968,6 +1968,31 @@ namespace image   // shl::gtk::image
     }
 
   protected:
+    void on_zoom_best_fit() {printf("I am here best fit\n");}
+    void on_zoom(const Glib::VariantBase &parameter)
+    //void on_zoom(const Glib::Variant<gint32> &parameter)
+    {
+      if (parameter.is_of_type(Glib::VARIANT_TYPE_INT32) == false)
+        return;
+
+      Glib::Variant<gint32> value;
+      value = Glib::VariantBase::cast_dynamic<Glib::Variant<gint32>>(parameter);
+      printf("I am here on_zoom %d\n", value.get());
+
+      //const Glib::ustring *value = (const Glib::ustring *)parameter.get_data();
+      //printf("I am here on_zoom %s\n", value->c_str());
+      //printf("I am here on_zoom %s\n", parameter.get_type_string().c_str());
+    }
+    void on_zoom_33() {printf("I am here 33\n");}
+    void on_zoom_50() {printf("I am here 50\n");}
+    void on_zoom_100() {printf("I am here 100\n");}
+    void on_zoom_133() {printf("I am here 133\n");}
+    void on_zoom_200() {printf("I am here 200\n");}
+    void on_zoom_500() {printf("I am here 500\n");}
+    void on_zoom_1000() {printf("I am here 1000\n");}
+    void on_zoom_1500() {printf("I am here 1500\n");}
+    void on_zoom_2000() {printf("I am here 2000\n");}
+    //
     void on_menu_save() {printf("I am here\n");}
     void on_menu_save_as() {printf("I am here as\n");}
     void on_menu_about() {printf("I am here about\n");}
@@ -1979,9 +2004,7 @@ namespace image   // shl::gtk::image
     {
       if (!m_zoom_menu->get_attach_widget())
         m_zoom_menu->attach_to_widget(*this);
-      //m_zoom_menu->popup(event->button, event->time);
       m_zoom_menu->popup_at_widget(&m_zoom_entry, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, nullptr);
-      printf("I am here entry\n");
     }
     void on_button_zoom_in()
     {
@@ -2018,36 +2041,70 @@ namespace image   // shl::gtk::image
       m_header_left_box.add(m_zoom_entry);
       m_header_left_box.pack_end(m_zoom_in_button);
       //
-      m_action_group = Gtk::ActionGroup::create();
-      m_action_group->add(Gtk::Action::create("Save", "Save"),
-                          sigc::mem_fun(*this, &MainWindow::on_menu_save));
-      m_action_group->add(Gtk::Action::create("SaveAs", "Save As..."),
-                          sigc::mem_fun(*this, &MainWindow::on_menu_save_as));
-      m_action_group->add(Gtk::Action::create("About", "About"),
-                          sigc::mem_fun(*this, &MainWindow::on_menu_about));
-      m_menu = Gtk::manage(new Gtk::Menu());
-      const char *action_table[] = {"Save", "SaveAs", "About", ""};
-      int index = 0;
-      while (action_table[index][0] != 0)
-      {
-        Glib::RefPtr<Gtk::Action> action;
-        action = m_action_group->get_action(action_table[index]);
-        action->set_accel_group(get_accel_group());
-        m_menu->append(*Gtk::manage(action->create_menu_item()));
-        index++;
-      }
-      m_menu_button.set_menu(*m_menu);
+      m_action_group = Gio::SimpleActionGroup::create();
+      m_action_group->add_action("save",sigc::mem_fun(*this, &MainWindow::on_menu_save));
+      m_action_group->add_action("save_as",sigc::mem_fun(*this, &MainWindow::on_menu_save_as));
+      m_action_group->add_action("about",sigc::mem_fun(*this, &MainWindow::on_menu_about));
+
+      m_action_group->add_action("best_fit",sigc::mem_fun(*this, &MainWindow::on_zoom_best_fit));
+      //m_action_group->add_action("zoom",sigc::mem_fun(*this, &MainWindow::on_zoom_best_fit));
+      //m_action_group->add_action_with_parameter("zoom", Glib::VARIANT_TYPE_STRING,
+      m_action_group->add_action_with_parameter("zoom", Glib::VARIANT_TYPE_INT32,
+                                                sigc::mem_fun(*this, &MainWindow::on_zoom))->set_enabled(true);
+      insert_action_group("main", m_action_group);
       //
+      m_menu = Gio::Menu::create();
+      m_menu->append_item(Gio::MenuItem::create("Save", "main.save"));
+      m_menu->append_item(Gio::MenuItem::create("Save As...", "main.save_as"));
+      m_menu->append_item(Gio::MenuItem::create("About", "main.about"));
+      m_menu_button.set_menu_model(m_menu);
+      //
+      Glib::RefPtr<Gio::MenuItem> item;
+      m_zoom_menu_model = Gio::Menu::create();
+      item = Gio::MenuItem::create("Best Fit", "main.best_fit");
+      m_zoom_menu_model->append_item(item);
+      item = Gio::MenuItem::create("Zoom 33%", "main.zoom");
+      //item->set_attribute_value("parameter", Glib::Variant<gint32>::create(33));
+      //item->set_attribute_value("zoom", Glib::Variant<Glib::ustring>::create("33"));
+      //item->set_action_and_target("main.zoom", Glib::Variant<Glib::ustring>::create("33"));
+      item->set_action_and_target("main.zoom", Glib::Variant<gint32>::create(33));
+      m_zoom_menu_model->append_item(item);
+      m_zoom_menu = Gtk::manage(new Gtk::Menu(m_zoom_menu_model));
+
+      /*m_zoom_action_group = Gtk::ActionGroup::create();
+      m_zoom_action_group->add(Gtk::Action::create("BestFit", "Best Fit"),
+                        sigc::mem_fun(*this, &MainWindow::on_zoom_best_fit));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom33", "33%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_33));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom50", "50%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_50));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom100", "100%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_100));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom133", "133%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_133));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom200", "200%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_200));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom500", "500%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_500));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom1000", "1000%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_1000));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom1500", "1500%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_1500));
+      m_zoom_action_group->add(Gtk::Action::create("Zoom2000", "2000%"),
+                               sigc::mem_fun(*this, &MainWindow::on_zoom_2000));
       m_zoom_menu = Gtk::manage(new Gtk::Menu());
-      index = 0;
-      while (action_table[index][0] != 0)
+      const char *zoom_action_table[] = {"BestFit",
+                     "Zoom33", "Zoom50","Zoom100", "Zoom133", "Zoom200",
+                     "Zoom500", "Zoom1000", "Zoom1500", "Zoom2000", ""};
+      int index = 0;
+      while (zoom_action_table[index][0] != 0)
       {
         Glib::RefPtr<Gtk::Action> action;
-        action = m_action_group->get_action(action_table[index]);
+        action = m_zoom_action_group->get_action(zoom_action_table[index]);
         action->set_accel_group(get_accel_group());
         m_zoom_menu->append(*Gtk::manage(action->create_menu_item()));
         index++;
-      }
+      }*/
       //
       m_title.set_label("ImageWindowUp");
       m_full_button.set_image_from_icon_name("view-fullscreen-symbolic");
@@ -2094,15 +2151,17 @@ namespace image   // shl::gtk::image
     // member variables --------------------------------------------------------
     Gtk::Button m_zoom_in_button;
     Gtk::Entry m_zoom_entry;
-    //Glib::RefPtr<Gtk::PopoverMenu> m_popover;
-    //Gtk::Popover *m_popover;
+    Glib::RefPtr<Gio::Menu> m_zoom_menu_model;
     Gtk::Menu *m_zoom_menu;
+    //Glib::RefPtr<Gtk::ActionGroup> m_zoom_action_group;
     Gtk::Button m_zoom_out_button;
     Gtk::Box m_header_left_box;
     Gtk::Label m_title;
     Gtk::Button m_full_button;
-    Gtk::Menu *m_menu;
-    Glib::RefPtr<Gtk::ActionGroup> m_action_group;
+    //Gtk::Menu *m_menu;
+    Glib::RefPtr<Gio::Menu> m_menu;
+    //Glib::RefPtr<Gtk::ActionGroup> m_action_group;
+    Glib::RefPtr<Gio::SimpleActionGroup> m_action_group;
     Gtk::MenuButton m_menu_button;
     Gtk::Box m_header_right_box;
     Gtk::HeaderBar m_header;
