@@ -1413,6 +1413,15 @@ namespace image   // shl::gtk::image
   };
 
   // ===========================================================================
+  //	UpdateHandlerInterface class
+  // ===========================================================================
+  class UpdateHandlerInterface
+  {
+  public:
+    virtual void view_zoom_updated(double in_zoom, bool in_best_fit) = 0;
+  };
+
+  // ===========================================================================
   // View class
   // ===========================================================================
   // Note: Order of Scrollable -> Widget is very important
@@ -1425,7 +1434,8 @@ namespace image   // shl::gtk::image
 
   public:
     // -------------------------------------------------------------------------
-    // View// -------------------------------------------------------------------------
+    // View
+    // -------------------------------------------------------------------------
     ~View() override
     {
       SHL_DBG_OUT("View was deleted");
@@ -1465,6 +1475,7 @@ namespace image   // shl::gtk::image
       m_window_width = 0;
       m_window_height = 0;
       m_zoom = 1.0;
+      m_zoom_best_fit = false;
       m_mouse_l_pressed = false;
       m_adjustments_modified = false;
 
@@ -1488,6 +1499,125 @@ namespace image   // shl::gtk::image
       m_image_data_ptr = inImageDataPtr;
       queue_draw();
     }
+
+    // -------------------------------------------------------------------------
+    // add_update_handler
+    // -------------------------------------------------------------------------
+    void add_update_handler(UpdateHandlerInterface *in_handler)
+    {
+      m_update_handlers.push_back(in_handler);
+    }
+
+    // -------------------------------------------------------------------------
+    // remove_update_handler
+    // -------------------------------------------------------------------------
+    void remove_update_handler(UpdateHandlerInterface *in_handler)
+    {
+      auto it = std::find(m_update_handlers.begin(),
+                          m_update_handlers.end(),
+                          in_handler);
+      if (it == m_update_handlers.end())
+        return;
+      m_update_handlers.erase(it);
+    }
+
+    // -------------------------------------------------------------------------
+    // get_zoom
+    // -------------------------------------------------------------------------
+    double get_zoom()
+    {
+      return m_zoom;
+    }
+
+    // -------------------------------------------------------------------------
+    // set_zoom
+    // -------------------------------------------------------------------------
+    void set_zoom(double in_zoom)
+    {
+      set_zoom(in_zoom, m_window_width / 2.0, m_window_height / 2.0);
+    }
+
+    // -------------------------------------------------------------------------
+    // get_zoom_best_fit
+    // -------------------------------------------------------------------------
+    bool get_zoom_best_fit()
+    {
+      return m_zoom_best_fit;
+    }
+
+    // -------------------------------------------------------------------------
+    // set_zoom_best_fit
+    // -------------------------------------------------------------------------
+    void set_zoom_best_fit(bool in_enable)
+    {
+      m_zoom_best_fit = in_enable;
+      if (m_zoom_best_fit == false)
+        return;
+      adjust_zoom_best_fit();
+    }
+
+    // -------------------------------------------------------------------------
+    // set_zoom
+    // -------------------------------------------------------------------------
+    void set_zoom(double in_zoom, double in_x, double in_y)
+    {
+      double v;
+      double prev_zoom = m_zoom;
+      m_zoom = in_zoom;
+
+      if (fabs(m_zoom - 1.0) <= 0.01)
+        m_zoom = 1.0;
+      if (m_zoom <= 0.01)
+        m_zoom = 0.01;
+
+      double prev_width = m_width;
+      double prev_height = m_height;
+      v = m_org_width * m_zoom;
+      m_width = v;
+      v = m_org_height * m_zoom;
+      m_height = v;
+
+      if (m_width <= m_window_width)
+        m_offset_x = 0;
+      else
+      {
+        if (prev_width <= m_window_width)
+          v = -1 * (m_window_width - prev_width) / 2.0;
+        else
+          v = 0;
+        v = (in_x + m_offset_x + v) / prev_zoom;
+        v = v * m_zoom - in_x;
+        m_offset_x = v;
+        m_offset_x_max = m_width - m_window_width;
+        if (m_offset_x > m_offset_x_max)
+          m_offset_x = m_offset_x_max;
+        if (m_offset_x < 0)
+          m_offset_x = 0;
+      }
+      configure_h_adjustment(); // calling here is important
+
+      if (m_height <= m_window_height)
+        m_offset_y = 0;
+      else
+      {
+        if (prev_height <= m_window_height)
+          v = -1 * (m_window_height - prev_height) / 2.0;
+        else
+          v = 0;
+        v = (in_y + m_offset_y + v) / prev_zoom;
+        v = v * m_zoom - in_y;
+        m_offset_y = v;
+        m_offset_y_max = m_height - m_window_height;
+        if (m_offset_y > m_offset_y_max)
+          m_offset_y = m_offset_y_max;
+        if (m_offset_y < 0)
+          m_offset_y = 0;
+      }
+      configure_v_adjustment();
+      queue_draw();
+      invoke_zoom_updated_handlers();
+    }
+
     // -------------------------------------------------------------------------
     // update_widget
     // -------------------------------------------------------------------------
@@ -1498,6 +1628,7 @@ namespace image   // shl::gtk::image
       queue_draw();
       return true;
     }*/
+
     // -------------------------------------------------------------------------
     // update_pixbuf
     // -------------------------------------------------------------------------
@@ -1729,64 +1860,16 @@ namespace image   // shl::gtk::image
       //          << "delta_y = " << event->delta_y << std::endl;
 
       double v;
-      double prev_zoom = m_zoom;
 
       if (event->direction == 0)
         v = 0.02;
       else
         v = -0.02;
       v = log10(m_zoom) + v;
-      m_zoom = pow(10, v);
-      if (fabs(m_zoom - 1.0) <= 0.01)
-        m_zoom = 1.0;
-      if (m_zoom <= 0.01)
-        m_zoom = 0.01;
-
-      double prev_width = m_width;
-      double prev_height = m_height;
-      v = m_org_width * m_zoom;
-      m_width = v;
-      v = m_org_height * m_zoom;
-      m_height = v;
-
-      if (m_width <= m_window_width)
-        m_offset_x = 0;
-      else
-      {
-        if (prev_width <= m_window_width)
-          v = -1 * (m_window_width - prev_width) / 2.0;
-        else
-          v = 0;
-        v = (event->x + m_offset_x + v) / prev_zoom;
-        v = v * m_zoom - event->x;
-        m_offset_x = v;
-        m_offset_x_max = m_width - m_window_width;
-        if (m_offset_x > m_offset_x_max)
-          m_offset_x = m_offset_x_max;
-        if (m_offset_x < 0)
-          m_offset_x = 0;
-      }
-      configure_h_adjustment(); // calling here is important
-
-      if (m_height <= m_window_height)
-        m_offset_y = 0;
-      else
-      {
-        if (prev_height <= m_window_height)
-          v = -1 * (m_window_height - prev_height) / 2.0;
-        else
-          v = 0;
-        v = (event->y + m_offset_y + v) / prev_zoom;
-        v = v * m_zoom - event->y;
-        m_offset_y = v;
-        m_offset_y_max = m_height - m_window_height;
-        if (m_offset_y > m_offset_y_max)
-          m_offset_y = m_offset_y_max;
-        if (m_offset_y < 0)
-          m_offset_y = 0;
-      }
-      configure_v_adjustment();
-      queue_draw();
+      v = pow(10, v);
+      //
+      set_zoom_best_fit(false);
+      set_zoom(v, event->x, event->y);
       return true;
     }
 
@@ -1810,8 +1893,15 @@ namespace image   // shl::gtk::image
       {
         m_window->move_resize((int) m_window_x, (int) m_window_y,
                               (int) m_window_width, (int) m_window_height);
-        configure_h_adjustment();
-        configure_v_adjustment();
+        if (m_zoom_best_fit)
+        {
+          adjust_zoom_best_fit();
+        }
+        else
+        {
+          configure_h_adjustment();
+          configure_v_adjustment();
+        }
       }
     }
 
@@ -1922,6 +2012,32 @@ namespace image   // shl::gtk::image
       queue_draw();
     }
 
+    // -------------------------------------------------------------------------
+    // adjust_zoom_best_fit
+    // -------------------------------------------------------------------------
+    void adjust_zoom_best_fit()
+    {
+      double src, dst, v, vx, vy;
+
+      vx = m_window_width / m_org_width;
+      vy = m_window_height / m_org_height;
+      if (vx < vy)
+        v = vx;
+      else
+        v = vy;
+      //
+      set_zoom(v);
+    }
+
+    // -------------------------------------------------------------------------
+    // invoke_zoom_updated_handlers
+    // -------------------------------------------------------------------------
+    void invoke_zoom_updated_handlers()
+    {
+      for (auto handler : m_update_handlers)
+        handler->view_zoom_updated(m_zoom, m_zoom_best_fit);
+    }
+
   private:
     // Member variables --------------------------------------------------------
     Glib::Property<Glib::RefPtr<Gtk::Adjustment>> m_h_adjustment;
@@ -1939,6 +2055,7 @@ namespace image   // shl::gtk::image
     double m_offset_x_max, m_offset_y_max;
     double m_offset_x_org, m_offset_y_org;
     double m_zoom;
+    bool m_zoom_best_fit;
     bool m_mouse_l_pressed;
     bool m_adjustments_modified;
 
@@ -1951,68 +2068,114 @@ namespace image   // shl::gtk::image
     Glib::RefPtr<Gdk::Window> m_window;
     Glib::RefPtr<Gdk::Pixbuf> m_pixbuf;
 
+    std::vector<UpdateHandlerInterface *>  m_update_handlers;
+
     friend class MainWindow;
   };
 
   // ---------------------------------------------------------------------------
   //	MainWindow class
   // ---------------------------------------------------------------------------
-  class MainWindow : public Gtk::Window
+  class MainWindow : public Gtk::Window, protected UpdateHandlerInterface
   {
   public:
     // -------------------------------------------------------------------------
-    // MainWindow// -------------------------------------------------------------------------
+    // MainWindow
+    // -------------------------------------------------------------------------
     ~MainWindow() override
     {
       SHL_DBG_OUT("MainWindow was deleted");
     }
 
   protected:
-    void on_zoom_best_fit() {printf("I am here best fit\n");}
+    void on_zoom_best_fit()
+    {
+      Glib::VariantBase variant = m_base_fit_action->get_state_variant();
+      if (variant.is_of_type(Glib::VARIANT_TYPE_BOOL) == false)
+        return;
+      Glib::Variant<bool> value;
+      value = Glib::VariantBase::cast_dynamic<Glib::Variant<bool>>(variant);
+      if (value.get())
+      {
+        m_base_fit_action->set_state(Glib::Variant<bool>::create(false));
+        m_image_view.set_zoom_best_fit(false);
+      }
+      else
+      {
+        m_base_fit_action->set_state(Glib::Variant<bool>::create(true));
+        m_image_view.set_zoom_best_fit(true);
+      }
+    }
     void on_zoom(const Glib::VariantBase &parameter)
-    //void on_zoom(const Glib::Variant<gint32> &parameter)
     {
       if (parameter.is_of_type(Glib::VARIANT_TYPE_INT32) == false)
         return;
 
+      m_image_view.set_zoom_best_fit(false);
       Glib::Variant<gint32> value;
       value = Glib::VariantBase::cast_dynamic<Glib::Variant<gint32>>(parameter);
-      printf("I am here on_zoom %d\n", value.get());
-
-      //const Glib::ustring *value = (const Glib::ustring *)parameter.get_data();
-      //printf("I am here on_zoom %s\n", value->c_str());
-      //printf("I am here on_zoom %s\n", parameter.get_type_string().c_str());
+      m_image_view.set_zoom(value.get() / 100.0);
     }
-    void on_zoom_33() {printf("I am here 33\n");}
-    void on_zoom_50() {printf("I am here 50\n");}
-    void on_zoom_100() {printf("I am here 100\n");}
-    void on_zoom_133() {printf("I am here 133\n");}
-    void on_zoom_200() {printf("I am here 200\n");}
-    void on_zoom_500() {printf("I am here 500\n");}
-    void on_zoom_1000() {printf("I am here 1000\n");}
-    void on_zoom_1500() {printf("I am here 1500\n");}
-    void on_zoom_2000() {printf("I am here 2000\n");}
     //
     void on_menu_save() {printf("I am here\n");}
     void on_menu_save_as() {printf("I am here as\n");}
     void on_menu_about() {printf("I am here about\n");}
-    void on_button_zoom_out()
-    {
-      printf("I am here out\n");
-    }
     void on_button_zoom_entry(Gtk::EntryIconPosition icon_position, const GdkEventButton* event)
     {
       if (!m_zoom_menu->get_attach_widget())
         m_zoom_menu->attach_to_widget(*this);
       m_zoom_menu->popup_at_widget(&m_zoom_entry, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, nullptr);
     }
+    void on_button_zoom_out()
+    {
+      gint32 v = (gint32 )(m_image_view.get_zoom() * 100.0);
+      const gint32 *zoom_list = get_zoom_list();
+      int index = 0;
+      while (zoom_list[index] != 0)
+        index++;
+      index--;
+      while (index != 0)
+      {
+        if (v > zoom_list[index])
+          break;
+        index--;
+      }
+      m_image_view.set_zoom_best_fit(false);
+      m_image_view.set_zoom(zoom_list[index] / 100.0);
+    }
     void on_button_zoom_in()
     {
-      printf("I am here in\n");
+      gint32 v = (gint32 )(m_image_view.get_zoom() * 100.0);
+      const gint32 *zoom_list = get_zoom_list();
+      while (*zoom_list != 0)
+      {
+        if (*zoom_list > v)
+          break;
+        zoom_list++;
+      }
+      if (*zoom_list == 0)
+        zoom_list--;
+      m_image_view.set_zoom_best_fit(false);
+      m_image_view.set_zoom(*zoom_list / 100.0);
     }
     void on_button_full()
     {
       printf("I am here full\n");
+    }
+    void view_zoom_updated(double in_zoom, bool in_best_fit)
+    {
+      char text_buf[256];
+      sprintf(text_buf, "%d%%", (int )(in_zoom * 100.0));
+      m_zoom_entry.set_text(text_buf);
+      //
+      Glib::VariantBase variant = m_base_fit_action->get_state_variant();
+      if (variant.is_of_type(Glib::VARIANT_TYPE_BOOL) == false)
+        return;
+      Glib::Variant<bool> value;
+      value = Glib::VariantBase::cast_dynamic<Glib::Variant<bool>>(variant);
+      if (value.get() == in_best_fit)
+        return;
+      m_base_fit_action->set_state(Glib::Variant<bool>::create(in_best_fit));
     }
 
     // -------------------------------------------------------------------------
@@ -2045,66 +2208,32 @@ namespace image   // shl::gtk::image
       m_action_group->add_action("save",sigc::mem_fun(*this, &MainWindow::on_menu_save));
       m_action_group->add_action("save_as",sigc::mem_fun(*this, &MainWindow::on_menu_save_as));
       m_action_group->add_action("about",sigc::mem_fun(*this, &MainWindow::on_menu_about));
-
-      m_action_group->add_action("best_fit",sigc::mem_fun(*this, &MainWindow::on_zoom_best_fit));
-      //m_action_group->add_action("zoom",sigc::mem_fun(*this, &MainWindow::on_zoom_best_fit));
-      //m_action_group->add_action_with_parameter("zoom", Glib::VARIANT_TYPE_STRING,
+      m_base_fit_action = m_action_group->add_action_bool("best_fit",
+                                                sigc::mem_fun(*this, &MainWindow::on_zoom_best_fit));
       m_action_group->add_action_with_parameter("zoom", Glib::VARIANT_TYPE_INT32,
-                                                sigc::mem_fun(*this, &MainWindow::on_zoom))->set_enabled(true);
+                                                sigc::mem_fun(*this, &MainWindow::on_zoom));
       insert_action_group("main", m_action_group);
       //
-      m_menu = Gio::Menu::create();
-      m_menu->append_item(Gio::MenuItem::create("Save", "main.save"));
-      m_menu->append_item(Gio::MenuItem::create("Save As...", "main.save_as"));
-      m_menu->append_item(Gio::MenuItem::create("About", "main.about"));
-      m_menu_button.set_menu_model(m_menu);
+      m_gio_menu = Gio::Menu::create();
+      m_gio_menu->append_item(Gio::MenuItem::create("Save", "main.save"));
+      m_gio_menu->append_item(Gio::MenuItem::create("Save As...", "main.save_as"));
+      m_gio_menu->append_item(Gio::MenuItem::create("About", "main.about"));
+      m_menu_button.set_menu_model(m_gio_menu);
       //
       Glib::RefPtr<Gio::MenuItem> item;
-      m_zoom_menu_model = Gio::Menu::create();
-      item = Gio::MenuItem::create("Best Fit", "main.best_fit");
-      m_zoom_menu_model->append_item(item);
-      item = Gio::MenuItem::create("Zoom 33%", "main.zoom");
-      //item->set_attribute_value("parameter", Glib::Variant<gint32>::create(33));
-      //item->set_attribute_value("zoom", Glib::Variant<Glib::ustring>::create("33"));
-      //item->set_action_and_target("main.zoom", Glib::Variant<Glib::ustring>::create("33"));
-      item->set_action_and_target("main.zoom", Glib::Variant<gint32>::create(33));
-      m_zoom_menu_model->append_item(item);
-      m_zoom_menu = Gtk::manage(new Gtk::Menu(m_zoom_menu_model));
-
-      /*m_zoom_action_group = Gtk::ActionGroup::create();
-      m_zoom_action_group->add(Gtk::Action::create("BestFit", "Best Fit"),
-                        sigc::mem_fun(*this, &MainWindow::on_zoom_best_fit));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom33", "33%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_33));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom50", "50%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_50));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom100", "100%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_100));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom133", "133%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_133));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom200", "200%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_200));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom500", "500%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_500));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom1000", "1000%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_1000));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom1500", "1500%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_1500));
-      m_zoom_action_group->add(Gtk::Action::create("Zoom2000", "2000%"),
-                               sigc::mem_fun(*this, &MainWindow::on_zoom_2000));
-      m_zoom_menu = Gtk::manage(new Gtk::Menu());
-      const char *zoom_action_table[] = {"BestFit",
-                     "Zoom33", "Zoom50","Zoom100", "Zoom133", "Zoom200",
-                     "Zoom500", "Zoom1000", "Zoom1500", "Zoom2000", ""};
-      int index = 0;
-      while (zoom_action_table[index][0] != 0)
+      m_gio_zoom_menu = Gio::Menu::create();
+      m_gio_zoom_menu->append_item(Gio::MenuItem::create("Best Fit", "main.best_fit"));
+      const gint32 *zoom_list = get_zoom_list();
+      while (*zoom_list != 0)
       {
-        Glib::RefPtr<Gtk::Action> action;
-        action = m_zoom_action_group->get_action(zoom_action_table[index]);
-        action->set_accel_group(get_accel_group());
-        m_zoom_menu->append(*Gtk::manage(action->create_menu_item()));
-        index++;
-      }*/
+        char label_buf[256];
+        sprintf(label_buf, "Zoom %d%%", *zoom_list);
+        Glib::RefPtr<Gio::MenuItem> item = Gio::MenuItem::create(label_buf, "main.zoom");
+        item->set_action_and_target("main.zoom", Glib::Variant<gint32>::create(*zoom_list));
+        m_gio_zoom_menu->append_item(item);
+        zoom_list++;
+      }
+      m_zoom_menu = Gtk::manage(new Gtk::Menu(m_gio_zoom_menu));
       //
       m_title.set_label("ImageWindowUp");
       m_full_button.set_image_from_icon_name("view-fullscreen-symbolic");
@@ -2125,6 +2254,10 @@ namespace image   // shl::gtk::image
       m_scr_win.add(m_image_view);
       m_box.pack_start(m_scr_win, true, true, 0);
       m_box.pack_start(m_status_bar, false, false, 0);
+      //
+      view_zoom_updated(m_image_view.get_zoom(), false);
+      m_image_view.add_update_handler(this);
+      //
       resize(300, 300);
       show_all_children();
     }
@@ -2149,28 +2282,38 @@ namespace image   // shl::gtk::image
 
   private:
     // member variables --------------------------------------------------------
+    Glib::RefPtr<Gio::SimpleActionGroup> m_action_group;
+    Glib::RefPtr<Gio::Menu> m_gio_menu;
+    Glib::RefPtr<Gio::Menu> m_gio_zoom_menu;
+    Glib::RefPtr<Gio::SimpleAction> m_base_fit_action;
+
+    Gtk::Menu *m_zoom_menu;
+
     Gtk::Button m_zoom_in_button;
     Gtk::Entry m_zoom_entry;
-    Glib::RefPtr<Gio::Menu> m_zoom_menu_model;
-    Gtk::Menu *m_zoom_menu;
-    //Glib::RefPtr<Gtk::ActionGroup> m_zoom_action_group;
     Gtk::Button m_zoom_out_button;
     Gtk::Box m_header_left_box;
     Gtk::Label m_title;
     Gtk::Button m_full_button;
-    //Gtk::Menu *m_menu;
-    Glib::RefPtr<Gio::Menu> m_menu;
-    //Glib::RefPtr<Gtk::ActionGroup> m_action_group;
-    Glib::RefPtr<Gio::SimpleActionGroup> m_action_group;
     Gtk::MenuButton m_menu_button;
     Gtk::Box m_header_right_box;
     Gtk::HeaderBar m_header;
     Gtk::Box m_box;
     Gtk::ScrolledWindow m_scr_win;
     Gtk::Label m_status_bar;
+
     shl::gtk::image::View m_image_view;
 
     friend class shl::gtk::ImageWindow;
+
+    // Member functions ----------------------------------------------------------
+    const gint32 *get_zoom_list()
+    {
+      static const gint32 zoom_list[] = {33,50,100,
+                                         133,200,500,1000,
+                                         1500,2000,0};
+      return zoom_list;
+    }
   };
 };
 
