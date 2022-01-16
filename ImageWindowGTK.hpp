@@ -3,7 +3,7 @@
 //
 //  MIT License
 //
-//  Copyright (c) 2021 Dairoku Sekiguchi
+//  Copyright (c) 2021-2022 Dairoku Sekiguchi
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -42,6 +42,7 @@
 #include <condition_variable>
 #include <thread>
 #include <cstring>
+#include <stdlib.h>
 #include <gtkmm.h>
 
 
@@ -129,7 +130,7 @@ namespace base  // shl::gtk::base
   class BackgroundAppWindowInterface
   {
   public:
-    virtual Gtk::Window *back_app_create_window() = 0;
+    virtual Gtk::Window *back_app_create_window(const char *in_title) = 0;
     virtual void back_app_wait_new_window() = 0;
     virtual Gtk::Window *back_app_get_window() = 0;
     virtual void back_app_delete_window() = 0;
@@ -169,10 +170,11 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // [Note] this function will be called from another thread
     //
-    void post_create_window(BackgroundAppWindowInterface *in_interface)
+    void post_create_window(BackgroundAppWindowInterface *in_interface, const char *in_title)
     {
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       m_create_win_queue.push(in_interface);
+      m_win_title_queue.push(in_title);
       Glib::signal_idle().connect( sigc::mem_fun(*this, &BackgroundApp::on_idle) );
     }
     // -------------------------------------------------------------------------
@@ -272,10 +274,11 @@ namespace base  // shl::gtk::base
       while (!m_create_win_queue.empty())
       {
         BackgroundAppWindowInterface *interface = m_create_win_queue.front();
+        const char *title = m_win_title_queue.front();
         auto it = std::find(m_window_list.begin(), m_window_list.end(), interface);
         if (it == m_window_list.end())
         {
-          Gtk::Window *win = interface->back_app_create_window();
+          Gtk::Window *win = interface->back_app_create_window(title);
           add_window(*win);
           win->signal_hide().connect(sigc::bind<Gtk::Window *>(
                   sigc::mem_fun(*this,
@@ -284,6 +287,7 @@ namespace base  // shl::gtk::base
           m_window_list.push_back(interface);
         }
         m_create_win_queue.pop();
+        m_win_title_queue.pop();
       }
     }
     // -------------------------------------------------------------------------
@@ -327,6 +331,7 @@ namespace base  // shl::gtk::base
     // member variables --------------------------------------------------------
     std::mutex m_create_win_queue_mutex;
     std::queue<BackgroundAppWindowInterface *> m_create_win_queue;
+    std::queue<const char *> m_win_title_queue;
     std::mutex m_delete_win_queue_mutex;
     std::queue<BackgroundAppWindowInterface *> m_delete_win_queue;
     std::mutex m_update_win_queue_mutex;
@@ -398,7 +403,7 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // create_window
     // -------------------------------------------------------------------------
-    void create_window(BackgroundAppWindowInterface *in_interface)
+    void create_window(BackgroundAppWindowInterface *in_interface, const char *in_title)
     {
       std::lock_guard<std::mutex> lock(m_function_call_mutex);
       if (m_app == nullptr)
@@ -406,7 +411,7 @@ namespace base  // shl::gtk::base
         m_app = new BackgroundApp();
         m_app->hold();
       }
-      m_app->post_create_window(in_interface);
+      m_app->post_create_window(in_interface, in_title);
       if (m_thread != nullptr)
         return;
       m_thread = new std::thread(thread_func, this);
@@ -508,11 +513,11 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // show_window
     // -------------------------------------------------------------------------
-    virtual void show_window()
+    virtual void show_window(const char *in_title = nullptr)
     {
       if (back_app_get_window() != nullptr)
         return;
-      m_app_runner->create_window(this);
+      m_app_runner->create_window(this, in_title);
       back_app_wait_new_window();
     }
     // -------------------------------------------------------------------------
@@ -526,6 +531,7 @@ namespace base  // shl::gtk::base
     }
 
   protected:
+
     // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
     // Object
@@ -1501,6 +1507,14 @@ namespace image   // shl::gtk::image
     }
 
     // -------------------------------------------------------------------------
+    // get_image_data
+    // -------------------------------------------------------------------------
+    Data *get_image_data()
+    {
+      return m_image_data_ptr;
+    }
+
+    // -------------------------------------------------------------------------
     // add_update_handler
     // -------------------------------------------------------------------------
     void add_update_handler(UpdateHandlerInterface *in_handler)
@@ -2030,6 +2044,45 @@ namespace image   // shl::gtk::image
     }
 
     // -------------------------------------------------------------------------
+    // save_pixbuf
+    // -------------------------------------------------------------------------
+    bool save_pixbuf(const std::string &in_filename, const Glib::ustring &in_type)
+    {
+      try
+      {
+        m_pixbuf->save(in_filename, in_type);
+      }
+      catch (Glib::FileError &ex)
+      {
+        printf("The exception occurred : %s\n", ex.what().c_str());
+        return false;
+      }
+      catch (Gdk::PixbufError &ex)
+      {
+        printf("The exception occurred : %s\n", ex.what().c_str());
+        return false;
+      }
+      return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // save_as_raw
+    // -------------------------------------------------------------------------
+    bool save_as_raw(const std::string &in_filename)
+    {
+      uint8_t *image = m_image_data_ptr->get_image();
+      size_t  size = m_image_data_ptr->get_buffer_size();
+      if (image == nullptr || size == 0 || in_filename.size() == 0)
+        return false;
+      FILE *fp = fopen(in_filename.c_str(), "wb");
+      if (fp == NULL)
+        return false;
+      fwrite(image, sizeof(uint8_t), size, fp);
+      fclose(fp);
+      return true;
+    }
+
+    // -------------------------------------------------------------------------
     // invoke_zoom_updated_handlers
     // -------------------------------------------------------------------------
     void invoke_zoom_updated_handlers()
@@ -2110,16 +2163,96 @@ namespace image   // shl::gtk::image
     {
       if (parameter.is_of_type(Glib::VARIANT_TYPE_INT32) == false)
         return;
-
+      //
       m_image_view.set_zoom_best_fit(false);
       Glib::Variant<gint32> value;
       value = Glib::VariantBase::cast_dynamic<Glib::Variant<gint32>>(parameter);
       m_image_view.set_zoom(value.get() / 100.0);
     }
-    //
-    void on_menu_save() {printf("I am here\n");}
-    void on_menu_save_as() {printf("I am here as\n");}
-    void on_menu_about() {printf("I am here about\n");}
+    bool on_zooom_entry_key_release(GdkEventKey* event)
+    {
+      if (event->type != GDK_KEY_RELEASE || event->keyval != GDK_KEY_Return)
+        return false;
+      Glib::ustring text = m_zoom_entry.get_text();
+      char *end_ptr;
+      int value = strtol(text.c_str(), &end_ptr, 0);
+      if (value == 0)
+        value = 1;
+      m_image_view.set_zoom_best_fit(false);
+      m_image_view.set_zoom(value / 100.0);
+      return true;
+    }
+    void on_menu_save()
+    {
+      char buf[512];
+      sprintf(buf, "%s-%d.bmp", m_title.get_text().c_str(), m_file_save_index);
+      m_image_view.save_pixbuf(buf, "bmp");
+      m_file_save_index++;
+    }
+    void on_menu_save_as()
+    {
+      typedef struct
+      {
+        const char *name;
+        const char *mime_type;
+        const char *save_type;
+      } type_data;
+      const type_data type_table[] = {
+          {"TIFF (*.tiff)", "image/tiff", "tiff"},
+          {"PNG (*.png)", "image/png", "png"},
+          {"JPEG (*.jpeg)", "image/jpeg", "jpeg"},
+          {"Windows icon (*.ico)", "image/ico", "ico"},
+          {"BMP (*.bmp)", "image/bmp", "bmp"},
+          {"RAW (*.raw)", "image/raw", "raw"},
+          {nullptr, nullptr, nullptr},
+      };
+
+      Gtk::FileChooserDialog dialog("Save As...",
+                                    Gtk::FILE_CHOOSER_ACTION_SAVE);
+      dialog.set_transient_for(*this);
+      dialog.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+      dialog.add_button("Save", Gtk::RESPONSE_OK);
+      Glib::RefPtr<Gtk::FileFilter> filter;
+      filter = Gtk::FileFilter::create();
+      filter->set_name("All files");
+      filter->add_pattern("*.*");
+      dialog.add_filter(filter);
+      filter = Gtk::FileFilter::create();
+      filter->set_name("Supported image files");
+      for (int i = 0; type_table[i].name != nullptr; i++)
+        filter->add_mime_type(type_table[i].mime_type);
+      dialog.add_filter(filter);
+      for (int i = 0; type_table[i].name != nullptr; i++)
+      {
+        filter = Gtk::FileFilter::create();
+        filter->set_name(type_table[i].name);
+        filter->add_mime_type(type_table[i].mime_type);
+        dialog.add_filter(filter);
+      }
+      if (dialog.run() != Gtk::RESPONSE_OK)
+        return;
+
+      bool result;
+      Glib::RefPtr< Gio::File > file = dialog.get_file();
+      std::string mime_type = Gio::content_type_guess(file->get_basename(), std::string(), result).c_str();
+      std::string save_type = "raw";
+      for (int i = 0; type_table[i].name != nullptr; i++)
+        if (mime_type == type_table[i].mime_type)
+          save_type = type_table[i].save_type;
+      if (save_type == "raw")
+        m_image_view.save_as_raw(file->get_path());
+      else
+        m_image_view.save_pixbuf(file->get_path(), save_type.c_str());
+    }
+    void on_menu_about()
+    {
+      Gtk::AboutDialog  dialog;
+      dialog.set_program_name("ImageWindows-GTK");
+      dialog.set_version("2.0.0");
+      dialog.set_copyright("Copyright (c) 2021-2022 Dairoku Sekiguchi");
+      dialog.set_transient_for(*this);
+      dialog.run();
+    }
     void on_button_zoom_entry(Gtk::EntryIconPosition icon_position, const GdkEventButton* event)
     {
       if (!m_zoom_menu->get_attach_widget())
@@ -2160,7 +2293,16 @@ namespace image   // shl::gtk::image
     }
     void on_button_full()
     {
-      printf("I am here full\n");
+      m_status_bar.hide();
+      this->fullscreen();
+    }
+    bool on_key_release(GdkEventKey* event)
+    {
+      if (event->type != GDK_KEY_RELEASE || event->keyval != GDK_KEY_Escape)
+        return false;
+      m_status_bar.show();
+      this->unfullscreen();
+      return true;
     }
     void view_zoom_updated(double in_zoom, bool in_best_fit)
     {
@@ -2181,12 +2323,14 @@ namespace image   // shl::gtk::image
     // -------------------------------------------------------------------------
     // MainWindow
     // -------------------------------------------------------------------------
-    MainWindow() :
+    MainWindow(const char *in_title) :
             m_header_left_box(Gtk::Orientation::ORIENTATION_HORIZONTAL),
             m_header_right_box(Gtk::Orientation::ORIENTATION_HORIZONTAL),
             m_box(Gtk::Orientation::ORIENTATION_VERTICAL, 0),
             m_status_bar("Statusbar")
     {
+      m_file_save_index = 0;
+      //
       m_zoom_out_button.set_image_from_icon_name("zoom-out-symbolic");
       m_zoom_out_button.signal_clicked().connect(
               sigc::mem_fun(*this, &MainWindow::on_button_zoom_out));
@@ -2197,6 +2341,8 @@ namespace image   // shl::gtk::image
       m_zoom_entry.set_alignment(1);
       m_zoom_entry.signal_icon_press().connect(
               sigc::mem_fun(*this, &MainWindow::on_button_zoom_entry));
+      m_zoom_entry.signal_key_release_event().connect(
+              sigc::mem_fun(*this, &MainWindow::on_zooom_entry_key_release));
       m_zoom_in_button.set_image_from_icon_name("zoom-in-symbolic");
       m_zoom_in_button.signal_clicked().connect(
               sigc::mem_fun(*this, &MainWindow::on_button_zoom_in));
@@ -2235,7 +2381,7 @@ namespace image   // shl::gtk::image
       }
       m_zoom_menu = Gtk::manage(new Gtk::Menu(m_gio_zoom_menu));
       //
-      m_title.set_label("ImageWindowUp");
+      m_title.set_label(in_title);
       m_full_button.set_image_from_icon_name("view-fullscreen-symbolic");
       m_full_button.signal_clicked().connect(
               sigc::mem_fun(*this, &MainWindow::on_button_full));
@@ -2257,6 +2403,8 @@ namespace image   // shl::gtk::image
       //
       view_zoom_updated(m_image_view.get_zoom(), false);
       m_image_view.add_update_handler(this);
+      this->signal_key_release_event().connect(
+              sigc::mem_fun(*this, &MainWindow::on_key_release));
       //
       resize(300, 300);
       show_all_children();
@@ -2304,6 +2452,8 @@ namespace image   // shl::gtk::image
 
     shl::gtk::image::View m_image_view;
 
+    int m_file_save_index;
+
     friend class shl::gtk::ImageWindow;
 
     // Member functions ----------------------------------------------------------
@@ -2346,11 +2496,25 @@ namespace image   // shl::gtk::image
     // -------------------------------------------------------------------------
     // back_app_create_window
     // -------------------------------------------------------------------------
-    Gtk::Window *back_app_create_window() override
+    Gtk::Window *back_app_create_window(const char *in_title) override
     {
-      m_window = new shl::gtk::image::MainWindow();
+      static int window_num = 0;
+      char buf[256];
+      if (in_title != nullptr)
+        if (*in_title == 0)
+          in_title = nullptr;
+      if (in_title == nullptr)
+      {
+        if (window_num == 0)
+          sprintf(buf, "ImageWindow");
+        else
+          sprintf(buf, "ImageWindow_%d", window_num);
+        in_title = buf;
+      }
+      m_window = new shl::gtk::image::MainWindow(in_title);
       m_window->set_image_data(this);
       m_new_window_cond.notify_all();
+      window_num++;
       return m_window;
     }
     void back_app_wait_new_window() override
