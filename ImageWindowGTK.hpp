@@ -546,7 +546,7 @@ namespace base  // shl::gtk::base
   };
 } // namespace shl::gtk::base
 #else
-  // If another shl file is already included, we need to check the base gtk class version
+  // If another shl file is already included, we need to is_valid the base gtk class version
   #if SHL_BASE_GTK_CLASS_VERSION != SHL_IMAGE_WINDOW_GTK_BASE_VERSION
     #error invalid shl base class version (There is a version inconsistency between included shl files)
   #endif
@@ -749,7 +749,7 @@ namespace image   // shl::gtk::image
       for (unsigned int i = 0; i < in_map_num; i++)
       {
         unsigned int t = i + in_offset;
-        if (t >= in_color_num_all) // Sanity check
+        if (t >= in_color_num_all) // Sanity is_valid
           t = in_color_num_all - 1;
         interp = (double) t * k;
         for (int j = 0; j < 3; j++)
@@ -775,7 +775,7 @@ namespace image   // shl::gtk::image
       for (unsigned int i = 0; i < in_map_num; i++)
       {
         unsigned int t = i + in_offset;
-        if (t >= in_color_num_all) // Sanity check
+        if (t >= in_color_num_all) // Sanity is_valid
           t = in_color_num_all - 1;
         interp = (double) t * k;
         interpolate_color(in_rgb0, in_rgb1, interp, &(out_color_map[i * 3]));
@@ -1353,7 +1353,7 @@ namespace image   // shl::gtk::image
       return m_buffer_size;
     }
 
-    [[nodiscard]] bool check() const
+    [[nodiscard]] bool is_valid() const
     {
       if (m_allocated_buffer_ptr == nullptr && m_external_buffer_ptr == nullptr)
         return false;
@@ -1650,7 +1650,7 @@ namespace image   // shl::gtk::image
     {
       if (m_image_data_ptr == nullptr)
         return false;
-      if (m_image_data_ptr->check() == false)
+      if (m_image_data_ptr->is_valid() == false)
         return false;
       bool need_to_create = true;
       if (m_pixbuf)
@@ -2293,22 +2293,23 @@ namespace image   // shl::gtk::image
     }
     void on_button_full()
     {
-      m_status_bar.hide();
+      //m_status_bar.hide();
       this->fullscreen();
     }
     bool on_key_release(GdkEventKey* event)
     {
       if (event->type != GDK_KEY_RELEASE || event->keyval != GDK_KEY_Escape)
         return false;
-      m_status_bar.show();
+      //m_status_bar.show();
       this->unfullscreen();
       return true;
     }
     void view_zoom_updated(double in_zoom, bool in_best_fit)
     {
-      char text_buf[256];
-      sprintf(text_buf, "%d%%", (int )(in_zoom * 100.0));
-      m_zoom_entry.set_text(text_buf);
+      char buf[256];
+      sprintf(buf, "%d%%", (int )(in_zoom * 100.0));
+      m_zoom_entry.set_text(buf);
+      update_status_left();
       //
       Glib::VariantBase variant = m_base_fit_action->get_state_variant();
       if (variant.is_of_type(Glib::VARIANT_TYPE_BOOL) == false)
@@ -2323,11 +2324,11 @@ namespace image   // shl::gtk::image
     // -------------------------------------------------------------------------
     // MainWindow
     // -------------------------------------------------------------------------
-    MainWindow(const char *in_title) :
+    MainWindow(Data *in_image_data_ptr, const char *in_title) :
             m_header_left_box(Gtk::Orientation::ORIENTATION_HORIZONTAL),
             m_header_right_box(Gtk::Orientation::ORIENTATION_HORIZONTAL),
             m_box(Gtk::Orientation::ORIENTATION_VERTICAL, 0),
-            m_status_bar("Statusbar")
+            m_status_box(Gtk::Orientation::ORIENTATION_HORIZONTAL, 0)
     {
       m_file_save_index = 0;
       //
@@ -2396,13 +2397,27 @@ namespace image   // shl::gtk::image
       m_header.pack_start(m_header_left_box);
       m_header.pack_end(m_header_right_box);
       //
+      update_status_left(false, 0, 0, false, 0, true);
+      update_status_center(false, 0, 0, false, 0, 0, 0, true);
+      update_status_right(false, 0, 0, true);
+      m_status_left.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_FILL);
+      m_status_center.set_alignment(Gtk::ALIGN_CENTER, Gtk::ALIGN_FILL);
+      m_status_right.set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_FILL);
+      m_status_left.set_margin_left(5);
+      m_status_right.set_margin_right(5);
+      m_status_box.pack_start(m_status_left, true, true, 0);
+      m_status_box.pack_start(m_status_center, true, true, 0);
+      m_status_box.pack_start(m_status_right, true, true, 0);
+      //
       this->add(m_box);
       m_scr_win.add(m_image_view);
       m_box.pack_start(m_scr_win, true, true, 0);
-      m_box.pack_start(m_status_bar, false, false, 0);
+      m_box.pack_start(m_status_box, false, true, 0);
       //
-      view_zoom_updated(m_image_view.get_zoom(), false);
       m_image_view.add_update_handler(this);
+      m_image_view.set_image_data(in_image_data_ptr);
+      view_zoom_updated(m_image_view.get_zoom(), false);
+      //
       this->signal_key_release_event().connect(
               sigc::mem_fun(*this, &MainWindow::on_key_release));
       //
@@ -2411,14 +2426,6 @@ namespace image   // shl::gtk::image
     }
 
     // Member functions ----------------------------------------------------------
-    // ---------------------------------------------------------------------------
-    // set_image_data
-    // ---------------------------------------------------------------------------
-    void set_image_data(Data *in_image_data_ptr)
-    {
-      m_image_view.set_image_data(in_image_data_ptr);
-    }
-
     // ---------------------------------------------------------------------------
     // update
     // ---------------------------------------------------------------------------
@@ -2448,15 +2455,182 @@ namespace image   // shl::gtk::image
     Gtk::HeaderBar m_header;
     Gtk::Box m_box;
     Gtk::ScrolledWindow m_scr_win;
-    Gtk::Label m_status_bar;
+    Gtk::Box  m_status_box;
+    Gtk::Label m_status_left;
+    Gtk::Label m_status_center;
+    Gtk::Label m_status_right;
 
     shl::gtk::image::View m_image_view;
 
     int m_file_save_index;
 
+    // status displayed values
+    bool m_status_is_valid_image_info;
+    int m_status_image_width;
+    int m_status_image_height;
+    bool m_status_is_image_mono;
+    double m_status_image_zoom;
+    bool m_status_is_valid_mouse_info;
+    int m_status_mouse_x;
+    int m_status_mouse_y;
+    bool m_status_is_mouse_mono;
+    int m_status_mouse_r;
+    int m_status_mouse_g;
+    int m_status_mouse_b;
+    bool m_is_status_valid_frame_info;
+    int m_status_frame_count;
+    double m_status_image_fps;
+
     friend class shl::gtk::ImageWindow;
 
     // Member functions ----------------------------------------------------------
+    void update_status_left()
+    {
+      if (m_image_view.get_image_data() == nullptr)
+        return;
+      update_status_left(m_image_view.get_image_data()->is_valid(),
+                         m_image_view.get_image_data()->get_width(),
+                         m_image_view.get_image_data()->get_height(),
+                         m_image_view.get_image_data()->is_mono(),
+                         m_image_view.get_zoom());
+    }
+    void update_status_left(bool in_is_valid_image_info,
+                            int in_image_width, int in_image_height,
+                            bool in_is_image_mono, double in_image_zoom,
+                            bool in_force_update = false)
+    {
+      if (in_is_valid_image_info == false &&
+          m_status_is_valid_image_info == false &&
+          in_force_update == false)
+      {
+        return;
+      }
+      if (m_status_is_valid_image_info == in_is_valid_image_info &&
+          m_status_image_width == in_image_width &&
+          m_status_image_height == in_image_height &&
+          m_status_is_image_mono == in_is_image_mono &&
+          m_status_image_zoom == in_image_zoom &&
+          in_force_update == false)
+      {
+        return;
+      }
+      m_status_is_valid_image_info = in_is_valid_image_info;
+      m_status_image_width = in_image_width;
+      m_status_image_height = in_image_height;
+      m_status_is_image_mono = in_is_image_mono;
+      m_status_image_zoom = in_image_zoom;
+
+      char buf[256];
+      const char *formatStr[] = {"RGB8", "MONO8"};
+      int formatIndex = 0;
+      if (in_is_image_mono)
+        formatIndex = 1;
+      if (m_status_is_valid_image_info == false)
+      {
+        buf[0] = 0;
+      }
+      else
+      {
+        sprintf(buf, "%s  %d x %d pixels %d%%",
+                formatStr[formatIndex],
+                m_status_image_width,
+                m_status_image_height,
+                (int) (m_status_image_zoom * 100.0));
+      }
+      m_status_left.set_text(buf);
+    }
+    void update_status_center(bool in_is_valid_mouse_info,
+            int in_mouse_x, int in_mouse_y,
+            bool in_is_mouse_mono,
+            int in_mouse_r, int in_mouse_g, int in_mouse_b,
+            bool in_force_update = false)
+    {
+      if (in_is_valid_mouse_info == false &&
+          m_status_is_valid_mouse_info == false &&
+          in_force_update == false)
+      {
+        return;
+      }
+      if (m_status_is_valid_mouse_info == in_is_valid_mouse_info &&
+          m_status_mouse_x == in_mouse_x &&
+          m_status_mouse_y == in_mouse_y &&
+          m_status_is_image_mono == in_is_mouse_mono &&
+          m_status_mouse_r == in_mouse_r &&
+          m_status_mouse_g == in_mouse_g &&
+          m_status_mouse_b == in_mouse_b &&
+          in_force_update == false)
+      {
+        return;
+      }
+      m_status_is_valid_mouse_info = in_is_valid_mouse_info;
+      m_status_mouse_x = in_mouse_x;
+      m_status_mouse_y = in_mouse_y;
+      m_status_is_image_mono = in_is_mouse_mono;
+      m_status_mouse_r = in_mouse_r;
+      m_status_mouse_g = in_mouse_g;
+      m_status_mouse_b = in_mouse_b;
+
+      char buf[256];
+      if (m_status_is_valid_mouse_info == false)
+      {
+        buf[0] = 0;
+      }
+      else
+      {
+        if (m_status_is_image_mono)
+        {
+          sprintf(buf, "[X:%d,Y:%d] = %d",
+                  m_status_mouse_x,
+                  m_status_mouse_y,
+                  m_status_mouse_r);
+        }
+        else
+        {
+          sprintf(buf, "[X:%d,Y:%d] = %d,%d,%d",
+                  m_status_mouse_x,
+                  m_status_mouse_y,
+                  m_status_mouse_r,
+                  m_status_mouse_g,
+                  m_status_mouse_b);
+        }
+      }
+      m_status_center.set_text(buf);
+    }
+    void update_status_right(bool in_is_valid_frame_info,
+            int in_frame_count, double in_fps,
+          bool in_force_update = false)
+    {
+      if (in_is_valid_frame_info == false &&
+          m_is_status_valid_frame_info == false &&
+          in_force_update == false)
+      {
+        return;
+      }
+      if (m_is_status_valid_frame_info == in_is_valid_frame_info &&
+          m_status_frame_count == in_frame_count &&
+          m_status_image_fps == in_fps &&
+          in_force_update == false)
+      {
+        return;
+      }
+      m_is_status_valid_frame_info = in_is_valid_frame_info;
+      m_status_frame_count = in_frame_count;
+      m_status_image_fps = in_fps;
+
+      char buf[256];
+      if (m_is_status_valid_frame_info == false)
+      {
+        buf[0] = 0;
+      }
+      else
+      {
+        sprintf(buf, "%d x (%.1ffps)",
+                m_status_frame_count,
+                m_status_image_fps);
+      }
+      m_status_right.set_text(buf);
+    }
+
     const gint32 *get_zoom_list()
     {
       static const gint32 zoom_list[] = {33,50,100,
@@ -2511,8 +2685,7 @@ namespace image   // shl::gtk::image
           sprintf(buf, "ImageWindow_%d", window_num);
         in_title = buf;
       }
-      m_window = new shl::gtk::image::MainWindow(in_title);
-      m_window->set_image_data(this);
+      m_window = new shl::gtk::image::MainWindow(this, in_title);
       m_new_window_cond.notify_all();
       window_num++;
       return m_window;
