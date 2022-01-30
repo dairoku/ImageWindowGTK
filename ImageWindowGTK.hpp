@@ -1252,7 +1252,8 @@ namespace image   // shl::gtk::image
       return true;
     }
 
-    bool set_external_buffer(uint8_t *in_buffer_ptr, int in_width, int in_height, bool in_is_mono = false)
+    bool set_external_buffer(uint8_t *in_buffer_ptr, int in_width, int in_height, bool in_is_mono = false,
+                             bool in_skip_frame_counter_update = false)
     {
       if (in_buffer_ptr == nullptr || in_width == 0 || in_height == 0)
       {
@@ -1270,11 +1271,12 @@ namespace image   // shl::gtk::image
       m_height = in_height;
       m_is_mono = in_is_mono;
       update_image_buffer_size();
-      m_is_image_modified = true;
+      mark_as_modified(in_skip_frame_counter_update);
       return true;
     }
 
-    bool update_external_buffer(uint8_t *in_buffer_ptr)
+    bool update_external_buffer(uint8_t *in_buffer_ptr,
+                                bool in_skip_frame_counter_update = false)
     {
       if (m_external_buffer_ptr == nullptr)
       {
@@ -1283,7 +1285,7 @@ namespace image   // shl::gtk::image
       }
       //
       m_external_buffer_ptr = in_buffer_ptr;
-      m_is_image_modified = true;
+      mark_as_modified(in_skip_frame_counter_update);
       return true;
     }
 
@@ -1294,20 +1296,50 @@ namespace image   // shl::gtk::image
       return m_external_buffer_ptr;
     }
 
-    bool copy_from(const uint8_t *in_src_ptr)
+    virtual bool get_pixel_value(int in_x, int in_y,
+                         bool *out_is_mono, int *out_r, int *out_g, int *out_b)
+    {
+      if (is_valid() == false)
+        return false;
+      if (in_x < 0 || in_x > get_width() ||
+          in_y < 0 || in_y > get_height())
+        return false;
+      //
+      *out_is_mono = is_mono();
+      unsigned char *pixBuf = get_image();
+      if (*out_is_mono)
+      {
+        *out_r = pixBuf[in_y * get_width() + in_x];
+        *out_g = 0;
+        *out_b = 0;
+      }
+      else
+      {
+        size_t index = (in_y * get_width() + in_x) * 3;
+        *out_r = pixBuf[index];
+        *out_g = pixBuf[index+1];
+        *out_b = pixBuf[index+2];
+      }
+      return true;
+    }
+
+    bool copy_from(const uint8_t *in_src_ptr,
+                   bool in_skip_frame_counter_update = false)
     {
       uint8_t *buffer = get_image();
       if (in_src_ptr == nullptr || m_buffer_size == 0 || buffer == nullptr)
         return false;
       //
       ::memcpy(buffer, in_src_ptr, m_buffer_size);
-      m_is_image_modified = true;
+      mark_as_modified(in_skip_frame_counter_update);
       return true;
     }
 
-    void mark_as_modified()
+    void mark_as_modified(bool in_skip_frame_counter_update = false)
     {
       m_is_image_modified = true;
+      if (in_skip_frame_counter_update == false)
+        increment_frame_counter();
     }
 
     void clear_modified_flag()
@@ -1315,17 +1347,38 @@ namespace image   // shl::gtk::image
       m_is_image_modified = false;
     }
 
+    void set_frame_counter(unsigned int in_frame_counter)
+    {
+      m_frame_counter = in_frame_counter;
+    }
+
+    [[nodiscard]] unsigned int get_frame_counter() const
+    {
+      return m_frame_counter;
+    }
+
+    void increment_frame_counter()
+    {
+      m_frame_counter++;
+    }
+
+    void reset_frame_counter()
+    {
+      m_frame_counter = 0;
+    }
+
     [[nodiscard]] Colormap::ColormapIndex get_colormap_index() const
     {
       return m_colormap_index;
     }
 
-    void set_colormap_index(Colormap::ColormapIndex in_index)
+    void set_colormap_index(Colormap::ColormapIndex in_index,
+                            bool in_skip_frame_counter_update = true)
     {
       if (m_colormap_index == in_index)
         return;
       m_colormap_index = in_index;
-      mark_as_modified();
+      mark_as_modified(in_skip_frame_counter_update);
     }
 
     [[nodiscard]] bool is_modified() const
@@ -1376,6 +1429,7 @@ namespace image   // shl::gtk::image
       m_is_mono = false;
       m_is_image_modified = false;
       m_colormap_index = Colormap::COLORMAP_GrayScale;
+      m_frame_counter = 0;
     }
 
     // Member functions --------------------------------------------------------
@@ -1411,6 +1465,7 @@ namespace image   // shl::gtk::image
     int m_height;
     bool m_is_mono;
     Colormap::ColormapIndex m_colormap_index;
+    unsigned int m_frame_counter;
 
     bool m_is_image_modified;
 
@@ -1425,6 +1480,15 @@ namespace image   // shl::gtk::image
   {
   public:
     virtual void view_zoom_updated(double in_zoom, bool in_best_fit) = 0;
+    virtual void view_image_info_updated(bool in_is_valid_image_info,
+                                int in_image_width, int in_image_height,
+                                bool in_is_image_mono) = 0;
+    virtual void view_mouse_info_updated(bool in_is_valid_mouse_info,
+                                            int in_mouse_x, int in_mouse_y,
+                                            bool in_is_mouse_mono,
+                                            int in_mouse_r, int in_mouse_g, int in_mouse_b) = 0;
+    virtual void view_frame_info_updated(bool in_is_valid_frame_info,
+                                        unsigned int in_frame_count, double in_fps) = 0;
   };
 
   // ===========================================================================
@@ -1493,7 +1557,7 @@ namespace image   // shl::gtk::image
 
       add_events(Gdk::SCROLL_MASK |
                  Gdk::BUTTON_MOTION_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
-                 Gdk::POINTER_MOTION_MASK);
+                 Gdk::POINTER_MOTION_MASK | Gdk::LEAVE_NOTIFY_MASK);
     }
 
     // Member functions --------------------------------------------------------
@@ -1672,11 +1736,13 @@ namespace image   // shl::gtk::image
                                        m_image_data_ptr->get_height());
         if (!m_pixbuf)
           return false;
+        invoke_image_info_updated_handlers();
       } else
       {
         if (m_image_data_ptr->is_modified() == false)
           return true;
       }
+      invoke_frame_info_updated_handlers(true, 0);
       if (m_image_data_ptr->is_mono())
       {
         if (m_colormap_index != m_image_data_ptr->get_colormap_index())
@@ -1806,10 +1872,12 @@ namespace image   // shl::gtk::image
     }
 
     // -------------------------------------------------------------------------
-    // on_button_press_event
+    // on_motion_notify_event
     // -------------------------------------------------------------------------
     bool on_motion_notify_event(GdkEventMotion *motion_event) override
     {
+      update_mouse_info(motion_event->x, motion_event->y);
+      //
       if (m_mouse_l_pressed == false)
         return false;
 
@@ -1849,6 +1917,13 @@ namespace image   // shl::gtk::image
       }
       return true;
     }
+    bool  on_leave_notify_event(GdkEventCrossing *crossing_event) override
+    {
+      invoke_mouse_info_updated_handlers(false,
+                                         0, 0,
+                                         false, 0, 0, 0);
+      return true;
+    }
 
     // -------------------------------------------------------------------------
     // on_button_release_event
@@ -1884,6 +1959,7 @@ namespace image   // shl::gtk::image
       //
       set_zoom_best_fit(false);
       set_zoom(v, event->x, event->y);
+      update_mouse_info(event->x, event->y);
       return true;
     }
 
@@ -2089,6 +2165,97 @@ namespace image   // shl::gtk::image
     {
       for (auto handler : m_update_handlers)
         handler->view_zoom_updated(m_zoom, m_zoom_best_fit);
+    }
+    // -------------------------------------------------------------------------
+    // invoke_image_info_updated_handlers
+    // -------------------------------------------------------------------------
+    void invoke_image_info_updated_handlers()
+    {
+      for (auto handler : m_update_handlers)
+      {
+        if (m_image_data_ptr == nullptr || !m_pixbuf)
+          handler->view_image_info_updated(false, 0, 0, false);
+        else
+          handler->view_image_info_updated(
+                  m_image_data_ptr->is_valid(),
+                  m_image_data_ptr->get_width(),
+                  m_image_data_ptr->get_height(),
+                  m_image_data_ptr->is_mono());
+      }
+    }
+    // -------------------------------------------------------------------------
+    // invoke_mouse_info_updated_handlers
+    // -------------------------------------------------------------------------
+    void invoke_mouse_info_updated_handlers(bool in_is_valid_mouse_info,
+                                            int in_mouse_x, int in_mouse_y,
+                                            bool in_is_mouse_mono,
+                                            int in_mouse_r, int in_mouse_g, int in_mouse_b)
+    {
+      for (auto handler : m_update_handlers)
+        handler->view_mouse_info_updated(
+                in_is_valid_mouse_info,
+                in_mouse_x, in_mouse_y,
+                in_is_mouse_mono,
+                in_mouse_r, in_mouse_g, in_mouse_b);
+    }
+    // -------------------------------------------------------------------------
+    // invoke_frame_info_updated_handlers
+    // -------------------------------------------------------------------------
+    void invoke_frame_info_updated_handlers(bool in_is_valid_frame_info, double in_fps)
+    {
+      for (auto handler : m_update_handlers)
+      {
+        if (m_image_data_ptr == nullptr || !m_pixbuf)
+          handler->view_frame_info_updated(false, 0, 0);
+        else
+          handler->view_frame_info_updated(in_is_valid_frame_info,
+                                           m_image_data_ptr->get_frame_counter(),
+                                           in_fps);
+      }
+    }
+
+    void update_mouse_info(int in_mouse_x, int in_mouse_y)
+    {
+      bool is_valid = true;
+      double t;
+      int x, y;
+
+      if (m_width <= m_window_width)
+      {
+        t = (m_window_width - m_width) / 2;
+        if (in_mouse_x < t || in_mouse_x > t + m_width)
+          is_valid = false;
+        t = (in_mouse_x - t) / m_zoom;
+        x = (int )t;
+      }
+      else
+      {
+        t = (m_offset_x + in_mouse_x) / m_zoom;
+        x = (int )t;
+      }
+      if (m_height <= m_window_height)
+      {
+        t = (m_window_height - m_height) / 2;
+        if (in_mouse_y < t || in_mouse_y > t + m_height)
+          is_valid = false;
+        t = (in_mouse_y- t) / m_zoom;
+        y = (int )t;
+      }
+      else
+      {
+        t = (m_offset_y + in_mouse_y) / m_zoom;
+        y = (int )t;
+      }
+
+      bool is_mono;
+      int pix_r, pix_g, pix_b;
+      if (m_image_data_ptr->get_pixel_value(x, y,
+              &is_mono, &pix_r, &pix_g, &pix_b) == false)
+        is_valid = false;
+      //
+      invoke_mouse_info_updated_handlers(is_valid,
+             x, y,
+             is_mono, pix_r, pix_g, pix_b);
     }
 
   private:
@@ -2320,6 +2487,30 @@ namespace image   // shl::gtk::image
         return;
       m_base_fit_action->set_state(Glib::Variant<bool>::create(in_best_fit));
     }
+    void view_image_info_updated(bool in_is_valid_image_info,
+                                int in_image_width, int in_image_height,
+                                bool in_is_image_mono)
+    {
+      if (m_image_view.get_image_data() == nullptr)
+        return;
+      update_status_left(in_is_valid_image_info, in_image_width, in_image_height,
+                         in_is_image_mono, m_image_view.get_zoom());
+    }
+    void view_mouse_info_updated(bool in_is_valid_mouse_info,
+                                int in_mouse_x, int in_mouse_y,
+                                bool in_is_mouse_mono,
+                                int in_mouse_r, int in_mouse_g, int in_mouse_b)
+    {
+      update_status_center(in_is_valid_mouse_info,
+                           in_mouse_x, in_mouse_y,
+                           in_is_mouse_mono,
+                           in_mouse_r, in_mouse_g, in_mouse_b);
+    }
+    void view_frame_info_updated(bool in_is_valid_frame_info,
+                                unsigned in_frame_count, double in_fps)
+    {
+      update_status_right(in_is_valid_frame_info, in_frame_count, in_fps);
+    }
 
     // -------------------------------------------------------------------------
     // MainWindow
@@ -2478,7 +2669,7 @@ namespace image   // shl::gtk::image
     int m_status_mouse_g;
     int m_status_mouse_b;
     bool m_is_status_valid_frame_info;
-    int m_status_frame_count;
+    unsigned int m_status_frame_count;
     double m_status_image_fps;
 
     friend class shl::gtk::ImageWindow;
@@ -2579,14 +2770,14 @@ namespace image   // shl::gtk::image
       {
         if (m_status_is_image_mono)
         {
-          sprintf(buf, "[X:%d,Y:%d] = %d",
+          sprintf(buf, "[%d,%d] = %d",
                   m_status_mouse_x,
                   m_status_mouse_y,
                   m_status_mouse_r);
         }
         else
         {
-          sprintf(buf, "[X:%d,Y:%d] = %d,%d,%d",
+          sprintf(buf, "[%d,%d] = %d,%d,%d",
                   m_status_mouse_x,
                   m_status_mouse_y,
                   m_status_mouse_r,
@@ -2597,8 +2788,8 @@ namespace image   // shl::gtk::image
       m_status_center.set_text(buf);
     }
     void update_status_right(bool in_is_valid_frame_info,
-            int in_frame_count, double in_fps,
-          bool in_force_update = false)
+            unsigned int in_frame_count, double in_fps,
+            bool in_force_update = false)
     {
       if (in_is_valid_frame_info == false &&
           m_is_status_valid_frame_info == false &&
@@ -2624,7 +2815,7 @@ namespace image   // shl::gtk::image
       }
       else
       {
-        sprintf(buf, "%d x (%.1ffps)",
+        sprintf(buf, "%d    %.2ffps",
                 m_status_frame_count,
                 m_status_image_fps);
       }
