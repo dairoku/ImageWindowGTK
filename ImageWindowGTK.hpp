@@ -26,12 +26,12 @@
 /*!
   \file     ImageWindow.h
   \author   Dairoku Sekiguchi
-  \version  1.0.0
+  \version  2.0.0-alpha.0
   \date     2021/11/14
 */
 #ifndef IMAGE_WINDOW_GTK_H_
 #define IMAGE_WINDOW_GTK_H_
-#define SHL_IMAGE_WINDOW_GTK_BASE_VERSION   1
+#define SHL_IMAGE_WINDOW_GTK_BASE_VERSION   "2.0.0-alpha.0"
 
 #include <cstdio>
 #include <cstring>
@@ -47,8 +47,9 @@
 
 
 // Namespace -------------------------------------------------------------------
+// memo : Change the following lines to "namespace shl::gtk" in the future
 namespace shl {
-namespace gtk // shl::gtk
+namespace gtk
 {
 //
 // =============================================================================
@@ -62,7 +63,7 @@ namespace gtk // shl::gtk
 // Namespace -------------------------------------------------------------------
 namespace base  // shl::gtk::base
 {
-//
+// Log macros for debugging ----------------------------------------------------
 #define SHL_LOG_STRINGIFY(x)    #x
 #define SHL_LOG_TOSTRING(x)     SHL_LOG_STRINGIFY(x)
 #define SHL_LOG_AT              SHL_LOG_TOSTRING(__FILE__) ":" SHL_LOG_TOSTRING(__LINE__)
@@ -146,7 +147,7 @@ namespace base  // shl::gtk::base
   {
   public:
     // -------------------------------------------------------------------------
-    // BackgroundAppundApp
+    // BackgroundApp destructor
     // -------------------------------------------------------------------------
     ~BackgroundApp() override
     {
@@ -155,7 +156,7 @@ namespace base  // shl::gtk::base
 
   protected:
     // -------------------------------------------------------------------------
-    // BackgroundApp
+    // BackgroundApp constructor
     // -------------------------------------------------------------------------
     BackgroundApp() :
             Gtk::Application("org.gtkmm.examples.application",
@@ -353,7 +354,7 @@ namespace base  // shl::gtk::base
   {
   public:
     // -------------------------------------------------------------------------
-    // BackgroundAppRunnerRunner
+    // BackgroundAppRunner destructor
     // -------------------------------------------------------------------------
     virtual ~BackgroundAppRunner()
     {
@@ -370,7 +371,7 @@ namespace base  // shl::gtk::base
 
   protected:
     // -------------------------------------------------------------------------
-    // BackgroundAppRunner
+    // BackgroundAppRunner constructor
     // -------------------------------------------------------------------------
     BackgroundAppRunner() :
       m_app(nullptr), m_thread(nullptr)
@@ -476,15 +477,22 @@ namespace base  // shl::gtk::base
   {
   public:
     // -------------------------------------------------------------------------
-    // Object // -------------------------------------------------------------------------
+    // Object destructor
+    // -------------------------------------------------------------------------
     virtual ~Object()
     {
       m_app_runner->delete_window(this);
     }
+
     // Member functions --------------------------------------------------------
     // -------------------------------------------------------------------------
     // wait_window_closed
     // -------------------------------------------------------------------------
+    /**
+     * Waits until the window associated to the object is closed.
+     * @note This is a blocking function.
+     *
+     */
     virtual void wait_window_closed()
     {
       back_app_wait_delete_window();
@@ -492,6 +500,14 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // is_window_closed
     // -------------------------------------------------------------------------
+    /**
+     * Checks whether the opened window is closed or not.
+     * @ The window associated to this object
+     *
+     * @return Whether the window is closed or not
+     *  - true : The window was closed
+     *  - false : The window is not closed
+     */
     virtual bool is_window_closed()
     {
       return back_app_is_window_deleted();
@@ -499,6 +515,10 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // wait_window_close_all
     // -------------------------------------------------------------------------
+    /**
+     * Waits until all of the windows are closed.
+     * @note The windows including opened by the other objects
+     */
     virtual void wait_window_close_all()
     {
       m_app_runner->wait_window_all_closed();
@@ -506,6 +526,14 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // is_window_close_all
     // -------------------------------------------------------------------------
+    /**
+     * Checks whether the all windows are closed or not.
+     * @note The windows including opened by the other objects
+     *
+     * @return Whether the window is closed or not
+     *  - true : The windows were all closed
+     *  - false : The all of the windows are still not closed
+     */
     virtual bool is_window_close_all()
     {
       return m_app_runner->is_window_close_all();
@@ -513,6 +541,12 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // show_window
     // -------------------------------------------------------------------------
+    /**
+     * Shows a window.
+     * @note if in_title is nullptr, the title will be automatically generated.
+     *
+     * @param in_title  The title of the window
+     */
     virtual void show_window(const char *in_title = nullptr)
     {
       if (back_app_get_window() != nullptr)
@@ -523,6 +557,11 @@ namespace base  // shl::gtk::base
     // -------------------------------------------------------------------------
     // update
     // -------------------------------------------------------------------------
+    /**
+     * Tells the library to updates the window.
+     * @note This function needs to be called when the content of the object is
+     * updated
+     */
     virtual void update()
     {
       if (back_app_get_window() == nullptr)
@@ -531,10 +570,8 @@ namespace base  // shl::gtk::base
     }
 
   protected:
-
-    // constructors and destructor ---------------------------------------------
     // -------------------------------------------------------------------------
-    // Object
+    // Object constructor
     // -------------------------------------------------------------------------
     Object()
     {
@@ -555,8 +592,7 @@ namespace base  // shl::gtk::base
 
 // Namespace -------------------------------------------------------------------
 class ImageWindow;  // This is for the friend class definition
-//
-namespace image   // shl::gtk::image
+namespace image     // shl::gtk::image
 {
   // ===========================================================================
   // Colormap class - colormap related utility class
@@ -691,7 +727,6 @@ namespace image   // shl::gtk::image
         }
       }
     }
-
     // -------------------------------------------------------------------------
     // get_monomap
     // -------------------------------------------------------------------------
@@ -725,7 +760,6 @@ namespace image   // shl::gtk::image
         out_colormap += 3;
       }
     }
-
     // -------------------------------------------------------------------------
     // clear_colormap
     // -------------------------------------------------------------------------
@@ -735,7 +769,6 @@ namespace image   // shl::gtk::image
         return;
       std::memset(out_colormap, 0, in_color_num * 3);
     }
-
     // -------------------------------------------------------------------------
     // calc_linear_colormap
     // -------------------------------------------------------------------------
@@ -761,7 +794,6 @@ namespace image   // shl::gtk::image
         }
       }
     }
-
     // -------------------------------------------------------------------------
     // calc_diverging_colormap
     // -------------------------------------------------------------------------
@@ -781,7 +813,6 @@ namespace image   // shl::gtk::image
         interpolate_color(in_rgb0, in_rgb1, interp, &(out_color_map[i * 3]));
       }
     }
-
     // -------------------------------------------------------------------------
     // interpolate_color
     // -------------------------------------------------------------------------
@@ -826,7 +857,6 @@ namespace image   // shl::gtk::image
 
       conv_msh_to_rgb(msh, out_rgb);
     }
-
     // -------------------------------------------------------------------------
     // adjust_hue
     // -------------------------------------------------------------------------
@@ -842,7 +872,6 @@ namespace image   // shl::gtk::image
         return in_msh[2] + hSpin;
       return in_msh[2] - hSpin;
     }
-
     // -------------------------------------------------------------------------
     // conv_rgb_to_msh
     // -------------------------------------------------------------------------
@@ -853,7 +882,7 @@ namespace image   // shl::gtk::image
       double lab[3];
 
       conv_rgb_to_lin_rgb(in_rgb, rgbL);
-#ifdef BLEU_COLORMAP_USE_D50
+#ifdef SHL_IMAGE_COLORMAP_USE_D50
       conv_lin_rgb_to_xyz_d50(rgbL, xyz);
       conv_xyz_d50_to_lab(xyz, lab);
 #else
@@ -862,7 +891,6 @@ namespace image   // shl::gtk::image
 #endif
       conv_lab_to_msh(lab, out_msh);
     }
-
     // -------------------------------------------------------------------------
     // conv_msh_to_rgb
     // -------------------------------------------------------------------------
@@ -873,7 +901,7 @@ namespace image   // shl::gtk::image
       double rgbL[3];
 
       conv_msh_to_Lab(in_msh, lab);
-#ifdef BLEU_COLORMAP_USE_D50
+#ifdef SHL_IMAGE_COLORMAP_USE_D50
       conv_lab_to_xyz_d50(lab, xyz);
       conv_xyz_d50_to_lin_rgb(xyz, rgbL);
 #else
@@ -882,7 +910,6 @@ namespace image   // shl::gtk::image
 #endif
       conv_lin_rgb_to_rgb(rgbL, out_rgb);
     }
-
     // -------------------------------------------------------------------------
     // conv_lab_to_msh
     // -------------------------------------------------------------------------
@@ -892,7 +919,6 @@ namespace image   // shl::gtk::image
       out_msh[1] = acos(in_lab[0] / out_msh[0]);
       out_msh[2] = atan2(in_lab[2], in_lab[1]);
     }
-
     // -------------------------------------------------------------------------
     // conv_msh_to_Lab
     // -------------------------------------------------------------------------
@@ -902,7 +928,6 @@ namespace image   // shl::gtk::image
       out_lab[1] = in_msh[0] * sin(in_msh[1]) * cos(in_msh[2]);
       out_lab[2] = in_msh[0] * sin(in_msh[1]) * sin(in_msh[2]);
     }
-
     // -------------------------------------------------------------------------
     // conv_xyz_d50_to_lab
     // -------------------------------------------------------------------------
@@ -914,7 +939,6 @@ namespace image   // shl::gtk::image
       out_lab[1] = 500 * (lab_sub_func(in_xyz[0] / wpXyz[0]) - lab_sub_func(in_xyz[1] / wpXyz[1]));
       out_lab[2] = 200 * (lab_sub_func(in_xyz[1] / wpXyz[1]) - lab_sub_func(in_xyz[2] / wpXyz[2]));
     }
-
     // -------------------------------------------------------------------------
     // conv_lab_to_xyz_d50
     // ------------------------------------------------------------------------
@@ -926,7 +950,6 @@ namespace image   // shl::gtk::image
       out_xyz[1] = lab_sub_inv_func((in_lab[0] + 16) / 116.0) * wpXyz[1];
       out_xyz[2] = lab_sub_inv_func((in_lab[0] + 16) / 116.0 - (in_lab[2] / 200.0)) * wpXyz[2];
     }
-
     // -------------------------------------------------------------------------
     // conv_xyz_d65_to_lab
     // -------------------------------------------------------------------------
@@ -938,7 +961,6 @@ namespace image   // shl::gtk::image
       out_lab[1] = 500 * (lab_sub_func(in_xyz[0] / wpXyz[0]) - lab_sub_func(in_xyz[1] / wpXyz[1]));
       out_lab[2] = 200 * (lab_sub_func(in_xyz[1] / wpXyz[1]) - lab_sub_func(in_xyz[2] / wpXyz[2]));
     }
-
     // -------------------------------------------------------------------------
     // conv_lab_to_xyz_d65
     // -------------------------------------------------------------------------
@@ -950,7 +972,6 @@ namespace image   // shl::gtk::image
       out_xyz[1] = lab_sub_inv_func((in_lab[0] + 16) / 116.0) * wpXyz[1];
       out_xyz[2] = lab_sub_inv_func((in_lab[0] + 16) / 116.0 - (in_lab[2] / 200.0)) * wpXyz[2];
     }
-
     // -------------------------------------------------------------------------
     // conv_lin_rgb_to_xyz (from sRGB linear (D65) to XYZ (D65) color space)
     // -------------------------------------------------------------------------
@@ -960,7 +981,6 @@ namespace image   // shl::gtk::image
       out_xyz[1] = 0.212639 * in_rgb_l[0] + 0.715169 * in_rgb_l[1] + 0.072192 * in_rgb_l[2];
       out_xyz[2] = 0.019331 * in_rgb_l[0] + 0.119195 * in_rgb_l[1] + 0.950532 * in_rgb_l[2];
     }
-
     // -------------------------------------------------------------------------
     // conv_xyz_to_lin_rgb (from XYZ (D65) to sRGB linear (D65) color space)
     // -------------------------------------------------------------------------
@@ -970,7 +990,6 @@ namespace image   // shl::gtk::image
       out_rgb_l[1] = -0.969244 * in_xyz[0] + 1.875968 * in_xyz[1] + 0.041555 * in_xyz[2];
       out_rgb_l[2] = 0.055630 * in_xyz[0] - 0.203977 * in_xyz[1] + 1.056972 * in_xyz[2];
     }
-
     // -------------------------------------------------------------------------
     // conv_lin_rgb_to_xyz_d50 (from sRGB linear (D65) to XYZ (D50) color space)
     // -------------------------------------------------------------------------
@@ -980,7 +999,6 @@ namespace image   // shl::gtk::image
       out_xyz[1] = 0.222485 * in_rgb_l[0] + 0.716905 * in_rgb_l[1] + 0.060610 * in_rgb_l[2];
       out_xyz[2] = 0.013920 * in_rgb_l[0] + 0.097067 * in_rgb_l[1] + 0.713913 * in_rgb_l[2];
     }
-
     // -------------------------------------------------------------------------
     // conv_xyz_d50_to_lin_rgb (from XYZ (D50) to sRGB linear (D65) color space)
     // -------------------------------------------------------------------------
@@ -990,7 +1008,6 @@ namespace image   // shl::gtk::image
       out_rgb_l[1] = -0.978749 * in_xyz[0] + 1.916130 * in_xyz[1] + 0.033433 * in_xyz[2];
       out_rgb_l[2] = 0.071964 * in_xyz[0] - 0.228994 * in_xyz[1] + 1.405754 * in_xyz[2];
     }
-
     // -------------------------------------------------------------------------
     // conv_rgb_to_lin_rgb (from sRGB to linear sRGB)
     // -------------------------------------------------------------------------
@@ -1008,7 +1025,6 @@ namespace image   // shl::gtk::image
         out_rgb_l[i] = value;
       }
     }
-
     // -------------------------------------------------------------------------
     // conv_lin_rgb_to_rgb (from linear sRGB to sRGB)
     // -------------------------------------------------------------------------
@@ -1064,7 +1080,6 @@ namespace image   // shl::gtk::image
       static const double sD50WhitePoint[3] = {0.9642, 1.0, 0.8249};
       return sD50WhitePoint;
     }
-
     // -------------------------------------------------------------------------
     // get_d50_whitepoint_in_xyz
     // -------------------------------------------------------------------------
@@ -1073,7 +1088,6 @@ namespace image   // shl::gtk::image
       static const double sD65WhitePoint[3] = {0.95047, 1.0, 1.08883};
       return sD65WhitePoint;
     }
-
     // -------------------------------------------------------------------------
     // lab_sub_func
     // -------------------------------------------------------------------------
@@ -1083,7 +1097,6 @@ namespace image   // shl::gtk::image
         return pow(inT, (1.0 / 3.0));
       return 7.78703 * inT + 16.0 / 116.0;
     }
-
     // -------------------------------------------------------------------------
     // lab_sub_inv_func
     // -------------------------------------------------------------------------
@@ -1093,7 +1106,6 @@ namespace image   // shl::gtk::image
         return pow(inT, 3);
       return (inT - 16.0 / 116.0) / 7.78703;
     }
-
     // -------------------------------------------------------------------------
     // get_multi_colormap_data
     // -------------------------------------------------------------------------
@@ -1124,7 +1136,6 @@ namespace image   // shl::gtk::image
         }
       }
     }
-
     // -------------------------------------------------------------------------
     // get_colormap_data
     // -------------------------------------------------------------------------
@@ -1222,13 +1233,29 @@ namespace image   // shl::gtk::image
   {
   public:
     // -------------------------------------------------------------------------
-    // Data// -------------------------------------------------------------------------
+    // Data destructor
+    // -------------------------------------------------------------------------
     virtual ~Data()
     {
       delete m_allocated_buffer_ptr;
     }
 
     // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // allocate
+    // -------------------------------------------------------------------------
+    /**
+     * Allocates the image buffer internally.
+     *
+     * @param in_width      The width of the image buffer
+     * @param in_height     The height of the image
+     * @param in_is_mono    The type of the image
+     *  - true : Allocates the image buffer for the monochrome image (8bit x 1ch = MONO8)
+     *  - false : Allocates the image buffer for the color image (8bit x 3ch = RGB8)
+     * @return  The result of the function call
+     *  - true : The allocation was successful
+     *  - false : The allocation was failed
+     */
     bool allocate(int in_width, int in_height, bool in_is_mono = false)
     {
       if (in_width == 0 || in_height == 0)
@@ -1251,7 +1278,25 @@ namespace image   // shl::gtk::image
       ::memset(m_allocated_buffer_ptr, 0, m_buffer_size);
       return true;
     }
-
+    // -------------------------------------------------------------------------
+    // set_external_buffer
+    // -------------------------------------------------------------------------
+    /**
+     * Specifies the external image buffer.
+     *
+     * @param in_buffer_ptr     The pointer for the external image buffer
+     * @param in_width          The height of the image
+     * @param in_height         The height of the image
+     * @param in_is_mono        The type of the image
+     *  - true : Allocates the image buffer for the monochrome image (8bit x 1ch = MONO8)
+     *  - false : Allocates the image buffer for the color image (8bit x 3ch = RGB8)
+     * @param in_skip_frame_counter_update
+     *  - true : Skips incrementing the frame counter. The frame counter will be unchanged.
+     *  - false : The frame counter will be incremented (updated).
+     * @return  The result of the function call
+     *  - true : Changing the image buffer was successful
+     *  - false : An error has occurred. The parameter specified was wrong.
+     */
     bool set_external_buffer(uint8_t *in_buffer_ptr, int in_width, int in_height, bool in_is_mono = false,
                              bool in_skip_frame_counter_update = false)
     {
@@ -1274,28 +1319,40 @@ namespace image   // shl::gtk::image
       mark_as_modified(in_skip_frame_counter_update);
       return true;
     }
-
-    bool update_external_buffer(uint8_t *in_buffer_ptr,
-                                bool in_skip_frame_counter_update = false)
-    {
-      if (m_external_buffer_ptr == nullptr)
-      {
-        cleanup_buffers();
-        return false;
-      }
-      //
-      m_external_buffer_ptr = in_buffer_ptr;
-      mark_as_modified(in_skip_frame_counter_update);
-      return true;
-    }
-
+    // -------------------------------------------------------------------------
+    // get_image
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the pointer for the image buffer.
+     * @note The image buffer needs to be allocated beforehand.
+     *
+     * @return The pointer for the image buffer
+     */
     [[nodiscard]] uint8_t *get_image() const
     {
       if (m_allocated_buffer_ptr != nullptr)
         return m_allocated_buffer_ptr;
       return m_external_buffer_ptr;
     }
-
+    // -------------------------------------------------------------------------
+    // get_pixel_value
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the pixel value of the image buffer.
+     * @note The image buffer needs to be allocated beforehand.
+     *
+     * @param in_x          The x position of the pixel
+     * @param in_y          The y position of the pixel
+     * @param out_is_mono   The type of the image
+     *  - true : Allocates the image buffer for the monochrome image (8bit x 1ch = MONO8)
+     *  - false : Allocates the image buffer for the color image (8bit x 3ch = RGB8)
+     * @param out_r         The pixel value of the specified location (The r component or monochrome pixel value)
+     * @param out_g         The pixel value of the specified location (The g component of the pixel value)
+     * @param out_b         The pixel value of the specified location (The b component of the pixel value)
+     * @return  The result of the function call
+     *  - true : Changing the image buffer was successful
+     *  - false : An error has occurred. The parameter specified was wrong.
+     */
     virtual bool get_pixel_value(int in_x, int in_y,
                          bool *out_is_mono, int *out_r, int *out_g, int *out_b)
     {
@@ -1322,56 +1379,120 @@ namespace image   // shl::gtk::image
       }
       return true;
     }
-
-    bool copy_from(const uint8_t *in_src_ptr,
-                   bool in_skip_frame_counter_update = false)
-    {
-      uint8_t *buffer = get_image();
-      if (in_src_ptr == nullptr || m_buffer_size == 0 || buffer == nullptr)
-        return false;
-      //
-      ::memcpy(buffer, in_src_ptr, m_buffer_size);
-      mark_as_modified(in_skip_frame_counter_update);
-      return true;
-    }
-
+    // -------------------------------------------------------------------------
+    // mark_as_modified
+    // -------------------------------------------------------------------------
+    /**
+     * Marks the image buffer as modified. Once the modified flag of the image
+     * is set by calling this function and if there is a window displaying
+     * the image buffer, the window will be redrawed to display the updated
+     * image buffer.
+     *
+     * @param in_skip_frame_counter_update
+     *  - true : Will skip incrementing the frame counter
+     *  - false : Will not increment the frame counter
+     */
     void mark_as_modified(bool in_skip_frame_counter_update = false)
     {
       m_is_image_modified = true;
       if (in_skip_frame_counter_update == false)
         increment_frame_counter();
     }
-
+    // -------------------------------------------------------------------------
+    // is_modified
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the modified flag of the image buffer
+     *
+     * @return  The state of the modified flag
+     *  - true : The image buffer is marked as modified
+     *  - false : The image buffer is not marked as modified
+     */
+    [[nodiscard]] bool is_modified() const
+    {
+      return m_is_image_modified;
+    }
+    // -------------------------------------------------------------------------
+    // clear_modified_flag
+    // -------------------------------------------------------------------------
+    /**
+     * Clears the modified flag of the image buffer.
+     */
     void clear_modified_flag()
     {
       m_is_image_modified = false;
     }
-
+    // -------------------------------------------------------------------------
+    // set_frame_counter
+    // -------------------------------------------------------------------------
+    /**
+     * Sets the frame counter of the image buffer.
+     *
+     * @param in_frame_counter  The new frame counter value
+     */
     void set_frame_counter(unsigned int in_frame_counter)
     {
       m_frame_counter = in_frame_counter;
     }
-
+    // -------------------------------------------------------------------------
+    // get_frame_counter
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the frame counter of the image buffer.
+     *
+     * @return  The frame counter value of the image buffer
+     */
     [[nodiscard]] unsigned int get_frame_counter() const
     {
       return m_frame_counter;
     }
-
+    // -------------------------------------------------------------------------
+    // increment_frame_counter
+    // -------------------------------------------------------------------------
+    /**
+     * Increments the frame counter of the image buffer.
+     */
     void increment_frame_counter()
     {
       m_frame_counter++;
     }
-
+    // -------------------------------------------------------------------------
+    // reset_frame_counter
+    // -------------------------------------------------------------------------
+    /**
+     * Resets the frame counter to zero.
+     */
     void reset_frame_counter()
     {
       m_frame_counter = 0;
     }
-
+    // -------------------------------------------------------------------------
+    // get_colormap_index
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the colormap index of the image buffer. The colormap index
+     * is used only when the type of the image buffer is monochrome.
+     *
+     * @return  The colormap index of the image buffer
+     */
     [[nodiscard]] Colormap::ColormapIndex get_colormap_index() const
     {
       return m_colormap_index;
     }
-
+    // -------------------------------------------------------------------------
+    // set_colormap_index
+    // -------------------------------------------------------------------------
+    /**
+     * Set the colormap index of the image buffer. The colormap index
+     * is used only when the type of the image buffer is monochrome.
+     * @note The modified flag of the image buffer will bet set
+     * by calling this function.
+     *
+     * @param in_index  The new colormap index of the image buffer
+     * @param in_skip_frame_counter_update
+     *  - true : Will skip incrementing the frame counter
+     *  - false : Will not increment the frame counter
+     */
     void set_colormap_index(Colormap::ColormapIndex in_index,
                             bool in_skip_frame_counter_update = true)
     {
@@ -1380,32 +1501,68 @@ namespace image   // shl::gtk::image
       m_colormap_index = in_index;
       mark_as_modified(in_skip_frame_counter_update);
     }
-
-    [[nodiscard]] bool is_modified() const
-    {
-      return m_is_image_modified;
-    }
-
+    // -------------------------------------------------------------------------
+    // get_width
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the width of the image buffer.
+     *
+     * @return The width of the image buffer
+     */
     [[nodiscard]] int get_width() const
     {
       return m_width;
     }
-
+    // -------------------------------------------------------------------------
+    // get_height
+    // -------------------------------------------------------------------------
+    /**
+     * Retries the height of the image buffer.
+     *
+     * @return The hegight of the image buffer
+     */
     [[nodiscard]] int get_height() const
     {
       return m_height;
     }
-
+    // -------------------------------------------------------------------------
+    // is_mono
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the type of the image buffer (Mono or Color).
+     *
+     * @return The image buffer type
+     *  - true : The image buffer type is monochrome (MONO8)
+     *  - false : The image buffer type is color (RGB8)
+     */
     [[nodiscard]] bool is_mono() const
     {
       return m_is_mono;
     }
-
+    // -------------------------------------------------------------------------
+    // get_buffer_size
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the size of the image buffer on the memory.
+     *
+     * @return The size of the image (bytes)
+     */
     [[nodiscard]] size_t get_buffer_size() const
     {
       return m_buffer_size;
     }
-
+    // -------------------------------------------------------------------------
+    // is_valid
+    // -------------------------------------------------------------------------
+    /**
+     * Checks whether the object holds a valid image buffer or not.
+     * @note To become the valid state, allocate() or set_external_buffer()
+     * needs to be called and returns with the success
+     *
+     * @return
+     *  - true : The image buffer is valid.
+     *  - false : The image buffer is invalid.
+     */
     [[nodiscard]] bool is_valid() const
     {
       if (m_allocated_buffer_ptr == nullptr && m_external_buffer_ptr == nullptr)
@@ -1417,7 +1574,7 @@ namespace image   // shl::gtk::image
 
   protected:
     // -------------------------------------------------------------------------
-    // Data
+    // Data constructor
     // -------------------------------------------------------------------------
     Data()
     {
@@ -1433,6 +1590,9 @@ namespace image   // shl::gtk::image
     }
 
     // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // cleanup_buffers
+    // -------------------------------------------------------------------------
     void cleanup_buffers()
     {
       if (m_allocated_buffer_ptr != nullptr)
@@ -1447,7 +1607,9 @@ namespace image   // shl::gtk::image
       m_is_mono = false;
       m_is_image_modified = false;
     }
-
+    // -------------------------------------------------------------------------
+    // update_image_buffer_size
+    // -------------------------------------------------------------------------
     void update_image_buffer_size()
     {
       m_buffer_size = m_width * m_height;
@@ -1504,7 +1666,7 @@ namespace image   // shl::gtk::image
 
   public:
     // -------------------------------------------------------------------------
-    // View
+    // View destructor
     // -------------------------------------------------------------------------
     ~View() override
     {
@@ -1513,7 +1675,7 @@ namespace image   // shl::gtk::image
 
   protected:
     // -------------------------------------------------------------------------
-    // View
+    // View constructor
     // -------------------------------------------------------------------------
     View() :
             Glib::ObjectBase("View"),
@@ -1569,7 +1731,6 @@ namespace image   // shl::gtk::image
       m_image_data_ptr = inImageDataPtr;
       queue_draw();
     }
-
     // -------------------------------------------------------------------------
     // get_image_data
     // -------------------------------------------------------------------------
@@ -1577,7 +1738,6 @@ namespace image   // shl::gtk::image
     {
       return m_image_data_ptr;
     }
-
     // -------------------------------------------------------------------------
     // add_update_handler
     // -------------------------------------------------------------------------
@@ -1585,7 +1745,6 @@ namespace image   // shl::gtk::image
     {
       m_update_handlers.push_back(in_handler);
     }
-
     // -------------------------------------------------------------------------
     // remove_update_handler
     // -------------------------------------------------------------------------
@@ -1598,7 +1757,6 @@ namespace image   // shl::gtk::image
         return;
       m_update_handlers.erase(it);
     }
-
     // -------------------------------------------------------------------------
     // get_zoom
     // -------------------------------------------------------------------------
@@ -1606,7 +1764,6 @@ namespace image   // shl::gtk::image
     {
       return m_zoom;
     }
-
     // -------------------------------------------------------------------------
     // set_zoom
     // -------------------------------------------------------------------------
@@ -1614,7 +1771,6 @@ namespace image   // shl::gtk::image
     {
       set_zoom(in_zoom, m_window_width / 2.0, m_window_height / 2.0);
     }
-
     // -------------------------------------------------------------------------
     // get_zoom_best_fit
     // -------------------------------------------------------------------------
@@ -1622,7 +1778,6 @@ namespace image   // shl::gtk::image
     {
       return m_zoom_best_fit;
     }
-
     // -------------------------------------------------------------------------
     // set_zoom_best_fit
     // -------------------------------------------------------------------------
@@ -1633,7 +1788,6 @@ namespace image   // shl::gtk::image
         return;
       adjust_zoom_best_fit();
     }
-
     // -------------------------------------------------------------------------
     // set_zoom
     // -------------------------------------------------------------------------
@@ -1695,18 +1849,6 @@ namespace image   // shl::gtk::image
       queue_draw();
       invoke_zoom_updated_handlers();
     }
-
-    // -------------------------------------------------------------------------
-    // update_widget
-    // -------------------------------------------------------------------------
-    /*bool  update_widget()
-    {
-      if (update_pixbuf() == false)
-        return false;
-      queue_draw();
-      return true;
-    }*/
-
     // -------------------------------------------------------------------------
     // update_pixbuf
     // -------------------------------------------------------------------------
@@ -1777,7 +1919,6 @@ namespace image   // shl::gtk::image
       m_image_data_ptr->clear_modified_flag();
       return true;
     }
-
     // -------------------------------------------------------------------------
     // on_draw
     // -------------------------------------------------------------------------
@@ -1815,7 +1956,6 @@ namespace image   // shl::gtk::image
       cr->paint();
       return true;
     }
-
     // -------------------------------------------------------------------------
     // on_realize
     // -------------------------------------------------------------------------
@@ -1846,7 +1986,6 @@ namespace image   // shl::gtk::image
         m_window->set_user_data(Gtk::Widget::gobj());
       }
     }
-
     // -------------------------------------------------------------------------
     // on_unrealize
     // -------------------------------------------------------------------------
@@ -1857,7 +1996,6 @@ namespace image   // shl::gtk::image
       //Call base class:
       Gtk::Widget::on_unrealize();
     }
-
     // -------------------------------------------------------------------------
     // on_button_press_event
     // -------------------------------------------------------------------------
@@ -1870,7 +2008,6 @@ namespace image   // shl::gtk::image
       m_offset_y_org = m_offset_y;
       return true;
     }
-
     // -------------------------------------------------------------------------
     // on_motion_notify_event
     // -------------------------------------------------------------------------
@@ -1917,6 +2054,9 @@ namespace image   // shl::gtk::image
       }
       return true;
     }
+    // -------------------------------------------------------------------------
+    // on_leave_notify_event
+    // -------------------------------------------------------------------------
     bool  on_leave_notify_event(GdkEventCrossing *crossing_event) override
     {
       invoke_mouse_info_updated_handlers(false,
@@ -1924,7 +2064,6 @@ namespace image   // shl::gtk::image
                                          false, 0, 0, 0);
       return true;
     }
-
     // -------------------------------------------------------------------------
     // on_button_release_event
     // -------------------------------------------------------------------------
@@ -1933,7 +2072,6 @@ namespace image   // shl::gtk::image
       m_mouse_l_pressed = false;
       return true;
     }
-
     // -------------------------------------------------------------------------
     // on_scroll_event
     // -------------------------------------------------------------------------
@@ -1962,7 +2100,6 @@ namespace image   // shl::gtk::image
       update_mouse_info(event->x, event->y);
       return true;
     }
-
     // -------------------------------------------------------------------------
     // on_size_allocate
     // -------------------------------------------------------------------------
@@ -1994,7 +2131,6 @@ namespace image   // shl::gtk::image
         }
       }
     }
-
     // -------------------------------------------------------------------------
     // h_adjustment_changed
     // -------------------------------------------------------------------------
@@ -2008,7 +2144,6 @@ namespace image   // shl::gtk::image
               *this, &shl::gtk::image::View::adjustment_value_changed));
       configure_h_adjustment();
     }
-
     // -------------------------------------------------------------------------
     // v_adjustment_changed
     // -------------------------------------------------------------------------
@@ -2022,7 +2157,6 @@ namespace image   // shl::gtk::image
               *this, &shl::gtk::image::View::adjustment_value_changed));
       configure_v_adjustment();
     }
-
     // -------------------------------------------------------------------------
     // configure_h_adjustment
     // -------------------------------------------------------------------------
@@ -2052,7 +2186,6 @@ namespace image   // shl::gtk::image
       }
       v->thaw_notify();
     }
-
     // -------------------------------------------------------------------------
     // configure_v_adjustment
     // -------------------------------------------------------------------------
@@ -2082,7 +2215,6 @@ namespace image   // shl::gtk::image
       }
       v->thaw_notify();
     }
-
     // -------------------------------------------------------------------------
     // adjustment_value_changed
     // -------------------------------------------------------------------------
@@ -2101,7 +2233,6 @@ namespace image   // shl::gtk::image
       m_adjustments_modified = false;
       queue_draw();
     }
-
     // -------------------------------------------------------------------------
     // adjust_zoom_best_fit
     // -------------------------------------------------------------------------
@@ -2118,7 +2249,6 @@ namespace image   // shl::gtk::image
       //
       set_zoom(v);
     }
-
     // -------------------------------------------------------------------------
     // save_pixbuf
     // -------------------------------------------------------------------------
@@ -2140,7 +2270,6 @@ namespace image   // shl::gtk::image
       }
       return true;
     }
-
     // -------------------------------------------------------------------------
     // save_as_raw
     // -------------------------------------------------------------------------
@@ -2157,7 +2286,6 @@ namespace image   // shl::gtk::image
       fclose(fp);
       return true;
     }
-
     // -------------------------------------------------------------------------
     // invoke_zoom_updated_handlers
     // -------------------------------------------------------------------------
@@ -2213,7 +2341,9 @@ namespace image   // shl::gtk::image
                                            in_fps);
       }
     }
-
+    // -------------------------------------------------------------------------
+    // update_mouse_info
+    // -------------------------------------------------------------------------
     void update_mouse_info(int in_mouse_x, int in_mouse_y)
     {
       bool is_valid = true;
@@ -2300,7 +2430,7 @@ namespace image   // shl::gtk::image
   {
   public:
     // -------------------------------------------------------------------------
-    // MainWindow
+    // MainWindow destructor
     // -------------------------------------------------------------------------
     ~MainWindow() override
     {
@@ -2308,6 +2438,10 @@ namespace image   // shl::gtk::image
     }
 
   protected:
+    // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // on_zoom_best_fit
+    // -------------------------------------------------------------------------
     void on_zoom_best_fit()
     {
       Glib::VariantBase variant = m_base_fit_action->get_state_variant();
@@ -2326,6 +2460,9 @@ namespace image   // shl::gtk::image
         m_image_view.set_zoom_best_fit(true);
       }
     }
+    // -------------------------------------------------------------------------
+    // on_zoom
+    // -------------------------------------------------------------------------
     void on_zoom(const Glib::VariantBase &parameter)
     {
       if (parameter.is_of_type(Glib::VARIANT_TYPE_INT32) == false)
@@ -2336,6 +2473,9 @@ namespace image   // shl::gtk::image
       value = Glib::VariantBase::cast_dynamic<Glib::Variant<gint32>>(parameter);
       m_image_view.set_zoom(value.get() / 100.0);
     }
+    // -------------------------------------------------------------------------
+    // on_zooom_entry_key_release
+    // -------------------------------------------------------------------------
     bool on_zooom_entry_key_release(GdkEventKey* event)
     {
       if (event->type != GDK_KEY_RELEASE || event->keyval != GDK_KEY_Return)
@@ -2349,6 +2489,9 @@ namespace image   // shl::gtk::image
       m_image_view.set_zoom(value / 100.0);
       return true;
     }
+    // -------------------------------------------------------------------------
+    // on_menu_save
+    // -------------------------------------------------------------------------
     void on_menu_save()
     {
       char buf[512];
@@ -2356,6 +2499,9 @@ namespace image   // shl::gtk::image
       m_image_view.save_pixbuf(buf, "bmp");
       m_file_save_index++;
     }
+    // -------------------------------------------------------------------------
+    // on_menu_save_as
+    // -------------------------------------------------------------------------
     void on_menu_save_as()
     {
       typedef struct
@@ -2373,7 +2519,7 @@ namespace image   // shl::gtk::image
           {"RAW (*.raw)", "image/raw", "raw"},
           {nullptr, nullptr, nullptr},
       };
-
+      //
       Gtk::FileChooserDialog dialog("Save As...",
                                     Gtk::FILE_CHOOSER_ACTION_SAVE);
       dialog.set_transient_for(*this);
@@ -2398,7 +2544,7 @@ namespace image   // shl::gtk::image
       }
       if (dialog.run() != Gtk::RESPONSE_OK)
         return;
-
+      //
       bool result;
       Glib::RefPtr< Gio::File > file = dialog.get_file();
       std::string mime_type = Gio::content_type_guess(file->get_basename(), std::string(), result).c_str();
@@ -2411,6 +2557,9 @@ namespace image   // shl::gtk::image
       else
         m_image_view.save_pixbuf(file->get_path(), save_type.c_str());
     }
+    // -------------------------------------------------------------------------
+    // on_menu_about
+    // -------------------------------------------------------------------------
     void on_menu_about()
     {
       Gtk::AboutDialog  dialog;
@@ -2420,12 +2569,18 @@ namespace image   // shl::gtk::image
       dialog.set_transient_for(*this);
       dialog.run();
     }
+    // -------------------------------------------------------------------------
+    // on_button_zoom_entry
+    // -------------------------------------------------------------------------
     void on_button_zoom_entry(Gtk::EntryIconPosition icon_position, const GdkEventButton* event)
     {
       if (!m_zoom_menu->get_attach_widget())
         m_zoom_menu->attach_to_widget(*this);
       m_zoom_menu->popup_at_widget(&m_zoom_entry, Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, nullptr);
     }
+    // -------------------------------------------------------------------------
+    // on_button_zoom_out
+    // -------------------------------------------------------------------------
     void on_button_zoom_out()
     {
       gint32 v = (gint32 )(m_image_view.get_zoom() * 100.0);
@@ -2443,6 +2598,9 @@ namespace image   // shl::gtk::image
       m_image_view.set_zoom_best_fit(false);
       m_image_view.set_zoom(zoom_list[index] / 100.0);
     }
+    // -------------------------------------------------------------------------
+    // on_button_zoom_in
+    // -------------------------------------------------------------------------
     void on_button_zoom_in()
     {
       gint32 v = (gint32 )(m_image_view.get_zoom() * 100.0);
@@ -2458,11 +2616,17 @@ namespace image   // shl::gtk::image
       m_image_view.set_zoom_best_fit(false);
       m_image_view.set_zoom(*zoom_list / 100.0);
     }
+    // -------------------------------------------------------------------------
+    // on_button_full
+    // -------------------------------------------------------------------------
     void on_button_full()
     {
       //m_status_bar.hide();
       this->fullscreen();
     }
+    // -------------------------------------------------------------------------
+    // on_key_release
+    // -------------------------------------------------------------------------
     bool on_key_release(GdkEventKey* event)
     {
       if (event->type != GDK_KEY_RELEASE || event->keyval != GDK_KEY_Escape)
@@ -2471,6 +2635,9 @@ namespace image   // shl::gtk::image
       this->unfullscreen();
       return true;
     }
+    // -------------------------------------------------------------------------
+    // view_zoom_updated
+    // -------------------------------------------------------------------------
     void view_zoom_updated(double in_zoom, bool in_best_fit)
     {
       char buf[256];
@@ -2487,6 +2654,9 @@ namespace image   // shl::gtk::image
         return;
       m_base_fit_action->set_state(Glib::Variant<bool>::create(in_best_fit));
     }
+    // -------------------------------------------------------------------------
+    // view_image_info_updated
+    // -------------------------------------------------------------------------
     void view_image_info_updated(bool in_is_valid_image_info,
                                 int in_image_width, int in_image_height,
                                 bool in_is_image_mono)
@@ -2496,6 +2666,9 @@ namespace image   // shl::gtk::image
       update_status_left(in_is_valid_image_info, in_image_width, in_image_height,
                          in_is_image_mono, m_image_view.get_zoom());
     }
+    // -------------------------------------------------------------------------
+    // view_mouse_info_updated
+    // -------------------------------------------------------------------------
     void view_mouse_info_updated(bool in_is_valid_mouse_info,
                                 int in_mouse_x, int in_mouse_y,
                                 bool in_is_mouse_mono,
@@ -2506,14 +2679,16 @@ namespace image   // shl::gtk::image
                            in_is_mouse_mono,
                            in_mouse_r, in_mouse_g, in_mouse_b);
     }
+    // -------------------------------------------------------------------------
+    // view_frame_info_updated
+    // -------------------------------------------------------------------------
     void view_frame_info_updated(bool in_is_valid_frame_info,
                                 unsigned in_frame_count, double in_fps)
     {
       update_status_right(in_is_valid_frame_info, in_frame_count, in_fps);
     }
-
     // -------------------------------------------------------------------------
-    // MainWindow
+    // MainWindow constructor
     // -------------------------------------------------------------------------
     MainWindow(Data *in_image_data_ptr, const char *in_title) :
             m_header_left_box(Gtk::Orientation::ORIENTATION_HORIZONTAL),
@@ -2675,6 +2850,9 @@ namespace image   // shl::gtk::image
     friend class shl::gtk::ImageWindow;
 
     // Member functions ----------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // update_status_left
+    // -------------------------------------------------------------------------
     void update_status_left()
     {
       if (m_image_view.get_image_data() == nullptr)
@@ -2685,6 +2863,9 @@ namespace image   // shl::gtk::image
                          m_image_view.get_image_data()->is_mono(),
                          m_image_view.get_zoom());
     }
+    // -------------------------------------------------------------------------
+    // update_status_left
+    // -------------------------------------------------------------------------
     void update_status_left(bool in_is_valid_image_info,
                             int in_image_width, int in_image_height,
                             bool in_is_image_mono, double in_image_zoom,
@@ -2730,6 +2911,9 @@ namespace image   // shl::gtk::image
       }
       m_status_left.set_text(buf);
     }
+    // -------------------------------------------------------------------------
+    // update_status_center
+    // -------------------------------------------------------------------------
     void update_status_center(bool in_is_valid_mouse_info,
             int in_mouse_x, int in_mouse_y,
             bool in_is_mouse_mono,
@@ -2787,6 +2971,9 @@ namespace image   // shl::gtk::image
       }
       m_status_center.set_text(buf);
     }
+    // -------------------------------------------------------------------------
+    // update_status_right
+    // -------------------------------------------------------------------------
     void update_status_right(bool in_is_valid_frame_info,
             unsigned int in_frame_count, double in_fps,
             bool in_force_update = false)
@@ -2821,7 +3008,9 @@ namespace image   // shl::gtk::image
       }
       m_status_right.set_text(buf);
     }
-
+    // -------------------------------------------------------------------------
+    // get_zoom_list
+    // -------------------------------------------------------------------------
     const gint32 *get_zoom_list()
     {
       static const gint32 zoom_list[] = {33,50,100,
@@ -2881,32 +3070,50 @@ namespace image   // shl::gtk::image
       window_num++;
       return m_window;
     }
+    // -------------------------------------------------------------------------
+    // back_app_wait_new_window
+    // -------------------------------------------------------------------------
     void back_app_wait_new_window() override
     {
       std::unique_lock<std::mutex> lock(m_new_window_mutex);
       m_new_window_cond.wait(lock);
     }
+    // -------------------------------------------------------------------------
+    // back_app_get_window
+    // -------------------------------------------------------------------------
     Gtk::Window *back_app_get_window() override
     {
       return m_window;
     }
+    // -------------------------------------------------------------------------
+    // back_app_delete_window
+    // -------------------------------------------------------------------------
     void back_app_delete_window() override
     {
       delete m_window;
       m_window = nullptr;
       m_delete_window_cond.notify_all();
     }
+    // -------------------------------------------------------------------------
+    // back_app_is_window_deleted
+    // -------------------------------------------------------------------------
     bool back_app_is_window_deleted() override
     {
       if (m_window == nullptr)
         return true;
       return false;
     }
+    // -------------------------------------------------------------------------
+    // back_app_wait_delete_window
+    // -------------------------------------------------------------------------
     void back_app_wait_delete_window() override
     {
       std::unique_lock<std::mutex> lock(m_delete_window_mutex);
       m_delete_window_cond.wait(lock);
     }
+    // -------------------------------------------------------------------------
+    // back_app_update_window
+    // -------------------------------------------------------------------------
     void back_app_update_window() override
     {
       if (m_window == nullptr)
