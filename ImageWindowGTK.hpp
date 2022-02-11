@@ -26,12 +26,12 @@
 /*!
   \file     ImageWindow.h
   \author   Dairoku Sekiguchi
-  \version  2.0.0-alpha.0
-  \date     2021/11/14
+  \version  2.0.0-alpha.1
+  \date     2022/02/11
 */
 #ifndef IMAGE_WINDOW_GTK_H_
 #define IMAGE_WINDOW_GTK_H_
-#define SHL_IMAGE_WINDOW_GTK_BASE_VERSION   "2.0.0-alpha.0"
+#define SHL_IMAGE_WINDOW_GTK_BASE_VERSION   "2.0.0-alpha.1"
 
 #include <cstdio>
 #include <cstring>
@@ -44,7 +44,8 @@
 #include <cstring>
 #include <stdlib.h>
 #include <gtkmm.h>
-
+#include <time.h>
+#include <unistd.h>
 
 // Namespace -------------------------------------------------------------------
 // memo : Change the following lines to "namespace shl::gtk" in the future
@@ -1227,6 +1228,44 @@ namespace image     // shl::gtk::image
   };
 
   // ===========================================================================
+  //	PerfCounter class
+  // ===========================================================================
+  class PerfCounter
+  {
+  public:
+    PerfCounter()
+    {
+      m_start_count = 0;
+    }
+    virtual ~PerfCounter()
+    {
+    }
+    uint64_t  get_count()
+    {
+      struct timespec tp;
+      if (clock_gettime(CLOCK_REALTIME, &tp) < 0)
+      {
+        SHL_ERROR_OUT("clock_gettime() returned error: %d", errno);
+        return 0;
+      }
+      uint64_t v = (uint64_t )tp.tv_nsec;
+      v += (uint64_t )tp.tv_sec * 1000000000L;
+      return v;
+    }
+    void start_count()
+    {
+      m_start_count = get_count();
+    }
+    uint64_t  elapsed_time()
+    {
+      return get_count() - m_start_count;
+    }
+
+  private:
+    uint64_t  m_start_count;
+  };
+
+  // ===========================================================================
   //	Data class
   // ===========================================================================
   class Data
@@ -1432,6 +1471,7 @@ namespace image     // shl::gtk::image
      */
     void set_frame_counter(unsigned int in_frame_counter)
     {
+      m_frame_counter_initialized = true;
       m_frame_counter = in_frame_counter;
     }
     // -------------------------------------------------------------------------
@@ -1444,6 +1484,8 @@ namespace image     // shl::gtk::image
      */
     [[nodiscard]] unsigned int get_frame_counter() const
     {
+      if (m_frame_counter_initialized == false)
+        return 0;
       return m_frame_counter;
     }
     // -------------------------------------------------------------------------
@@ -1454,6 +1496,12 @@ namespace image     // shl::gtk::image
      */
     void increment_frame_counter()
     {
+      if (m_frame_counter_initialized == false)
+      {
+        m_frame_counter_initialized = true;
+        m_frame_counter = 0;
+        return;
+      }
       m_frame_counter++;
     }
     // -------------------------------------------------------------------------
@@ -1464,6 +1512,7 @@ namespace image     // shl::gtk::image
      */
     void reset_frame_counter()
     {
+      m_frame_counter_initialized = false;
       m_frame_counter = 0;
     }
     // -------------------------------------------------------------------------
@@ -1586,7 +1635,7 @@ namespace image     // shl::gtk::image
       m_is_mono = false;
       m_is_image_modified = false;
       m_colormap_index = Colormap::COLORMAP_GrayScale;
-      m_frame_counter = 0;
+      reset_frame_counter();
     }
 
     // Member functions --------------------------------------------------------
@@ -1627,6 +1676,7 @@ namespace image     // shl::gtk::image
     int m_height;
     bool m_is_mono;
     Colormap::ColormapIndex m_colormap_index;
+    bool m_frame_counter_initialized;
     unsigned int m_frame_counter;
 
     bool m_is_image_modified;
@@ -1696,6 +1746,9 @@ namespace image     // shl::gtk::image
       m_org_height = 0;
       m_mouse_x = 0;
       m_mouse_y = 0;
+      m_mouse_info_x = 0;
+      m_mouse_info_y = 0;
+      m_mouse_info_updated = false;
       m_offset_x = 0;
       m_offset_y = 0;
       m_offset_x_max = 0;
@@ -1713,6 +1766,10 @@ namespace image     // shl::gtk::image
 
       m_image_data_ptr = nullptr;
       m_is_image_size_changed = false;
+
+      m_fps = 0;
+      m_fps_sum = 0;
+      m_fps_sum_num = 0;
 
       m_colormap_index = Colormap::COLORMAP_NOT_SPECIFIED;
       std::memset(m_colormap, 0, IM_VIEW_COLORMAP_DATA_SIZE);
@@ -1884,7 +1941,33 @@ namespace image     // shl::gtk::image
         if (m_image_data_ptr->is_modified() == false)
           return true;
       }
-      invoke_frame_info_updated_handlers(true, 0);
+      if (m_image_data_ptr->get_frame_counter() == 0)
+      {
+        m_fps_counter.start_count();
+        m_fps = 0;
+        m_fps_sum_counter.start_count();
+        m_fps_sum = 0;
+        m_fps_sum_num = 0;
+      }
+      else
+      {
+        double v;
+        v = m_fps_counter.elapsed_time();
+        m_fps_counter.start_count();
+        if (v != 0)
+          v = 1000000000.0 / v;
+        m_fps_sum += v;
+        m_fps_sum_num++;
+        if (m_fps_sum_counter.elapsed_time() > 1000000000)
+        {
+          m_fps = m_fps_sum / m_fps_sum_num;
+          m_fps_sum_counter.start_count();
+          m_fps_sum = 0;
+          m_fps_sum_num = 0;
+        }
+      }
+      update_mouse_info();
+      invoke_frame_info_updated_handlers(true, m_fps);
       if (m_image_data_ptr->is_mono())
       {
         if (m_colormap_index != m_image_data_ptr->get_colormap_index())
@@ -2059,6 +2142,9 @@ namespace image     // shl::gtk::image
     // -------------------------------------------------------------------------
     bool  on_leave_notify_event(GdkEventCrossing *crossing_event) override
     {
+      m_mouse_info_updated = false;
+      m_mouse_info_x = 0;
+      m_mouse_info_y = 0;
       invoke_mouse_info_updated_handlers(false,
                                          0, 0,
                                          false, 0, 0, 0);
@@ -2344,7 +2430,16 @@ namespace image     // shl::gtk::image
     // -------------------------------------------------------------------------
     // update_mouse_info
     // -------------------------------------------------------------------------
-    void update_mouse_info(int in_mouse_x, int in_mouse_y)
+    void update_mouse_info()
+    {
+      if (m_mouse_info_updated == false)
+        return;
+      update_mouse_info(m_mouse_info_x, m_mouse_info_y);
+    }
+    // -------------------------------------------------------------------------
+    // update_mouse_info
+    // -------------------------------------------------------------------------
+    void update_mouse_info(double in_mouse_x, double in_mouse_y)
     {
       bool is_valid = true;
       double t;
@@ -2383,6 +2478,9 @@ namespace image     // shl::gtk::image
               &is_mono, &pix_r, &pix_g, &pix_b) == false)
         is_valid = false;
       //
+      m_mouse_info_x = in_mouse_x;
+      m_mouse_info_y = in_mouse_y;
+      m_mouse_info_updated = true;
       invoke_mouse_info_updated_handlers(is_valid,
              x, y,
              is_mono, pix_r, pix_g, pix_b);
@@ -2401,6 +2499,8 @@ namespace image     // shl::gtk::image
     double m_width, m_height;
     double m_org_width, m_org_height;
     double m_mouse_x, m_mouse_y;
+    bool  m_mouse_info_updated;
+    double m_mouse_info_x, m_mouse_info_y;
     double m_offset_x, m_offset_y;
     double m_offset_x_max, m_offset_y_max;
     double m_offset_x_org, m_offset_y_org;
@@ -2408,6 +2508,12 @@ namespace image     // shl::gtk::image
     bool m_zoom_best_fit;
     bool m_mouse_l_pressed;
     bool m_adjustments_modified;
+
+    PerfCounter m_fps_counter;
+    PerfCounter m_fps_sum_counter;
+    double m_fps;
+    double m_fps_sum;
+    int m_fps_sum_num;
 
     Data *m_image_data_ptr;
     bool m_is_image_size_changed;
@@ -2564,7 +2670,7 @@ namespace image     // shl::gtk::image
     {
       Gtk::AboutDialog  dialog;
       dialog.set_program_name("ImageWindows-GTK");
-      dialog.set_version("2.0.0");
+      dialog.set_version(SHL_IMAGE_WINDOW_GTK_BASE_VERSION);
       dialog.set_copyright("Copyright (c) 2021-2022 Dairoku Sekiguchi");
       dialog.set_transient_for(*this);
       dialog.run();
