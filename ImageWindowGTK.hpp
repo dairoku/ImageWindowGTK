@@ -3,7 +3,7 @@
 //
 //  MIT License
 //
-//  Copyright (c) 2021-2022 Dairoku Sekiguchi
+//  Copyright (c) 2021-2024 Dairoku Sekiguchi
 //
 //  Permission is hereby granted, free of charge, to any person obtaining a copy
 //  of this software and associated documentation files (the "Software"), to deal
@@ -26,12 +26,12 @@
 /*!
   \file     ImageWindow.h
   \author   Dairoku Sekiguchi
-  \version  2.0.0-alpha.1
-  \date     2022/02/11
+  \version  3.0.0
+  \date     2024/08/25
 */
 #ifndef IMAGE_WINDOW_GTK_H_
 #define IMAGE_WINDOW_GTK_H_
-#define SHL_IMAGE_WINDOW_GTK_BASE_VERSION   "2.0.0-alpha.1"
+#define SHL_IMAGE_WINDOW_GTK_BASE_VERSION   "3.0.0"
 
 #include <cstdio>
 #include <cstring>
@@ -42,24 +42,24 @@
 #include <condition_variable>
 #include <thread>
 #include <cstring>
-#include <stdlib.h>
-#include <gtkmm.h>
-#include <time.h>
+#include <cstdlib>
+#include <ctime>
 #include <unistd.h>
+#include <gtkmm.h>
+#include <gtkmm/switch.h>
+
 
 // Namespace -------------------------------------------------------------------
-// memo : Change the following lines to "namespace shl::gtk" in the future
-namespace shl {
-namespace gtk
+namespace shl::gtk
 {
 //
 // =============================================================================
-//	shl base gtk classes
+//  shl base gtk classes
 // =============================================================================
 // Macros ----------------------------------------------------------------------
 #ifndef SHL_BASE_GTK_CLASS_
 #define SHL_BASE_GTK_CLASS_
-#define SHL_BASE_GTK_CLASS_VERSION  SHL_IMAGE_WINDOW_GTK_BASE_VERSION
+#define SHL_BASE_GTK_CLASS_VERSION  SHL_CONTROLS_WINDOW_GTK_BASE_VERSION
 //
 // Namespace -------------------------------------------------------------------
 namespace base  // shl::gtk::base
@@ -127,7 +127,7 @@ namespace base  // shl::gtk::base
 #endif
 
   // ===========================================================================
-  //	BackgroundAppWindowInterface class
+  //  BackgroundAppWindowInterface class
   // ===========================================================================
   class BackgroundAppWindowInterface
   {
@@ -135,6 +135,7 @@ namespace base  // shl::gtk::base
     virtual Gtk::Window *back_app_create_window(const char *in_title) = 0;
     virtual void back_app_wait_new_window() = 0;
     virtual Gtk::Window *back_app_get_window() = 0;
+    virtual bool back_app_delete_request() = 0;
     virtual void back_app_delete_window() = 0;
     virtual bool back_app_is_window_deleted() = 0;
     virtual void back_app_wait_delete_window() = 0;
@@ -142,7 +143,230 @@ namespace base  // shl::gtk::base
   };
 
   // ===========================================================================
-  //	BackgroundApp class
+  //  EventData class
+  // ===========================================================================
+  class EventData
+  {
+  public:
+    // -------------------------------------------------------------------------
+    // EventData destructor
+    // -------------------------------------------------------------------------
+    virtual ~EventData() = default;
+    // -------------------------------------------------------------------------
+    // get_source
+    // -------------------------------------------------------------------------
+    virtual void *get_source()
+    {
+      return m_source;
+    }
+
+  protected:
+    // -------------------------------------------------------------------------
+    // EventData constructor
+    // -------------------------------------------------------------------------
+    EventData(void *in_source, void (*in_handler)(EventData *)) :
+        m_source(in_source),
+        m_handler(in_handler)
+    {
+    }
+    // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // is_same_source
+    // -------------------------------------------------------------------------
+    virtual bool is_same_source(EventData *in_event_data)
+    {
+      if (m_source == in_event_data->m_source &&
+          m_handler       == in_event_data->m_handler)
+        return true;
+      return false;
+    }
+    // -------------------------------------------------------------------------
+    // invoke_handler
+    // -------------------------------------------------------------------------
+    virtual void invoke_handler()
+    {
+      if (m_handler != nullptr)
+        m_handler(this);
+    }
+
+  private:
+    // member variables --------------------------------------------------------
+    void  *m_source;
+    void (*m_handler)(EventData *);
+
+    // friend classes ----------------------------------------------------------
+    friend class EventQueue;
+    friend class WindowBase;
+  };
+
+  // ===========================================================================
+  //  EventQueue class
+  // ===========================================================================
+  class EventQueue
+  {
+  public:
+    // -------------------------------------------------------------------------
+    // EventQueue constructor
+    // -------------------------------------------------------------------------
+    EventQueue() = default;
+    // -------------------------------------------------------------------------
+    // EventQueue destructor
+    // -------------------------------------------------------------------------
+    virtual ~EventQueue() = default;
+    // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // push
+    // -------------------------------------------------------------------------
+    void push(void *in_source, void (*in_handler)(EventData *))
+    {
+      auto *event = new EventData(in_source, in_handler);
+      push(event);
+    }
+    // -------------------------------------------------------------------------
+    // push
+    // -------------------------------------------------------------------------
+    void push(EventData *in_event)
+    {
+      std::lock_guard<std::mutex> lock(m_event_queue_mutex);
+      m_event_data_queue.push_back(in_event);
+      m_new_event_cond.notify_all();
+    }
+    // -------------------------------------------------------------------------
+    // notify
+    // -------------------------------------------------------------------------
+    void notify()
+    {
+      std::lock_guard<std::mutex> lock(m_event_queue_mutex);
+      m_new_event_cond.notify_all();
+    }
+    // -------------------------------------------------------------------------
+    // wait
+    // -------------------------------------------------------------------------
+    void wait()
+    {
+      std::unique_lock<std::mutex> lock(m_event_queue_mutex);
+      if (m_event_data_queue.empty() == false)
+        return;
+      m_new_event_cond.wait(lock);
+    }
+    // -------------------------------------------------------------------------
+    // process_events
+    // -------------------------------------------------------------------------
+    void process_events(bool in_last_only = false)
+    {
+      std::lock_guard<std::mutex> lock(m_event_queue_mutex);
+      while (m_event_data_queue.empty() == false)
+      {
+        bool skip = false;
+        EventData *event_data = m_event_data_queue.front();
+        if (in_last_only)
+        {
+          auto it = m_event_data_queue.begin();
+          it++;
+          while (it != m_event_data_queue.end())
+          {
+            if (event_data->is_same_source(*it))
+            {
+              skip = true;
+              break;
+            }
+            it++;
+          }
+        }
+        if (skip == false)
+          event_data->invoke_handler();
+        m_event_data_queue.pop_front();
+        delete event_data;
+      }
+    }
+
+  private:
+    // member variables --------------------------------------------------------
+    std::list<EventData *>  m_event_data_queue;
+    std::condition_variable m_new_event_cond;
+    std::mutex  m_event_queue_mutex;
+  };
+
+  // ===========================================================================
+  //  TimerData class
+  // ===========================================================================
+  class TimerData
+  {
+  protected:
+    // -------------------------------------------------------------------------
+    // TimerData constructor
+    // -------------------------------------------------------------------------
+    TimerData( unsigned int in_interval_ms,
+                EventQueue *in_user_event_queue,
+                void (*in_timer_event_func)(void *in_user_data),
+                void *in_user_data = nullptr) :
+        m_interval_ms(in_interval_ms),
+        m_user_event_queue(in_user_event_queue),
+        m_timer_event_func(in_timer_event_func),
+        m_user_data(in_user_data),
+        m_is_running(false)
+    {
+    }
+    // -------------------------------------------------------------------------
+    // WidgetData destructor
+    // -------------------------------------------------------------------------
+    virtual ~TimerData() = default;
+    // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // connect (needs to be called from the UI thread)
+    // -------------------------------------------------------------------------
+    void connect()
+    {
+      mTimerConnection = Glib::signal_timeout().connect(
+              sigc::mem_fun(*this, &TimerData::queue_timer_event), m_interval_ms);
+      m_is_running = true;
+      // todo : add connect_seconds() path also
+    }
+    // -------------------------------------------------------------------------
+    // disconnect (needs to be called from the UI thread)
+    // -------------------------------------------------------------------------
+    void disconnect()
+    {
+      if (m_is_running == false)
+        return;
+      mTimerConnection.disconnect();
+      m_is_running = false;
+    }
+    // -------------------------------------------------------------------------
+    // queue_timer_event
+    // -------------------------------------------------------------------------
+    bool queue_timer_event()
+    {
+      if (m_user_event_queue == nullptr || m_timer_event_func == nullptr)
+        return false; // return false = disconnect
+
+      m_user_event_queue->push(this, process_timer_event);
+      return true;  
+    }
+    // -------------------------------------------------------------------------
+    // process_timer_event
+    // -------------------------------------------------------------------------
+    static void process_timer_event(base::EventData *in_event)
+    {
+      auto  *timer = (TimerData *)in_event->get_source();
+      timer->m_timer_event_func(timer->m_user_data);
+    }
+
+  private:
+    // member variables --------------------------------------------------------
+    unsigned int  m_interval_ms;
+    void (*m_timer_event_func)(void *in_user_data);
+    void *m_user_data;
+    EventQueue *m_user_event_queue;
+    sigc::connection  mTimerConnection;
+    bool  m_is_running;
+
+    friend class BackgroundApp;
+    friend class WindowBase;
+  };
+
+  // ===========================================================================
+  //  BackgroundApp class
   // ===========================================================================
   class BackgroundApp : public Gtk::Application
   {
@@ -177,7 +401,8 @@ namespace base  // shl::gtk::base
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       m_create_win_queue.push(in_interface);
       m_win_title_queue.push(in_title);
-      Glib::signal_idle().connect( sigc::mem_fun(*this, &BackgroundApp::on_idle) );
+      // Invoke one time on_idle call (by returning false from the signal handler)
+      Glib::signal_idle().connect(sigc::mem_fun(*this, &BackgroundApp::on_idle));
     }
     // -------------------------------------------------------------------------
     // post_delete_window
@@ -188,7 +413,8 @@ namespace base  // shl::gtk::base
     {
       std::lock_guard<std::mutex> lock(m_delete_win_queue_mutex);
       m_delete_win_queue.push(in_interface);
-      Glib::signal_idle().connect( sigc::mem_fun(*this, &BackgroundApp::on_idle) );
+      // Invoke one time on_idle call (by returning false from the signal handler)
+      Glib::signal_idle().connect(sigc::mem_fun(*this, &BackgroundApp::on_idle));
     }
     // -------------------------------------------------------------------------
     // post_update_window
@@ -199,7 +425,32 @@ namespace base  // shl::gtk::base
     {
       std::lock_guard<std::mutex> lock(m_update_win_queue_mutex);
       m_update_win_queue.push(in_interface);
-      Glib::signal_idle().connect( sigc::mem_fun(*this, &BackgroundApp::on_idle) );
+      // Invoke one time on_idle call (by returning false from the signal handler)
+      Glib::signal_idle().connect(sigc::mem_fun(*this, &BackgroundApp::on_idle));
+    }
+    // -------------------------------------------------------------------------
+    // post_connect_timer
+    // -------------------------------------------------------------------------
+    // [Note] this function will be called from another thread
+    //
+    void post_connect_timer(TimerData *inTimerData)
+    {
+      std::lock_guard<std::mutex> lock(m_connect_timer_queue_mutex);
+      m_connect_timer_queue.push(inTimerData);
+      // Invoke one time on_idle call (by returning false from the signal handler)
+      Glib::signal_idle().connect(sigc::mem_fun(*this, &BackgroundApp::on_idle));
+    }
+    // -------------------------------------------------------------------------
+    // post_disconnect_timer
+    // -------------------------------------------------------------------------
+    // [Note] this function will be called from another thread
+    //
+    void post_disconnect_timer(TimerData *inTimerData)
+    {
+      std::lock_guard<std::mutex> lock(m_disconnect_timer_queue_mutex);
+      m_disconnect_timer_queue.push(inTimerData);
+      // Invoke one time on_idle call (by returning false from the signal handler)
+      Glib::signal_idle().connect(sigc::mem_fun(*this, &BackgroundApp::on_idle));
     }
     // -------------------------------------------------------------------------
     // post_quit_app
@@ -210,7 +461,8 @@ namespace base  // shl::gtk::base
     {
       std::lock_guard<std::mutex> lock(m_create_win_queue_mutex);
       m_quit = true;
-      Glib::signal_idle().connect( sigc::mem_fun(*this, &BackgroundApp::on_idle) );
+      // Invoke one time on_idle call (by returning false from the signal handler)
+      Glib::signal_idle().connect(sigc::mem_fun(*this, &BackgroundApp::on_idle));
     }
     // -------------------------------------------------------------------------
     // get_window_num
@@ -238,6 +490,19 @@ namespace base  // shl::gtk::base
       process_create_windows();
     }
     // -------------------------------------------------------------------------
+    // on_delete_event
+    // -------------------------------------------------------------------------
+    bool on_delete_event(GdkEventAny *in_event)
+    {
+      for (auto it = m_window_list.begin(); it != m_window_list.end(); it++)
+      {
+        //if (in_window == (*it)->back_app_get_window())
+        if (in_event->window == (*it)->back_app_get_window()->get_window()->gobj())
+          return (*it)->back_app_delete_request();
+      }
+      return false;
+    }
+    // -------------------------------------------------------------------------
     // on_hide_window
     // -------------------------------------------------------------------------
     void on_hide_window(Gtk::Window *in_window)
@@ -263,8 +528,13 @@ namespace base  // shl::gtk::base
       process_create_windows();
       process_update_windows();
       process_delete_windows();
+      process_connect_timers();
+      process_disconnect_timers();
       if (m_quit)
         quit();
+      // by returning false here, this signal handler will be disconnected
+      // from Glib::signal_idle()
+      // https://gnome.pages.gitlab.gnome.org/gtkmm-documentation/sec-idle-functions.html
       return false;
     }
     // -------------------------------------------------------------------------
@@ -282,6 +552,8 @@ namespace base  // shl::gtk::base
         {
           Gtk::Window *win = interface->back_app_create_window(title);
           add_window(*win);
+          win->signal_delete_event().connect(sigc::mem_fun(*this,
+                            &BackgroundApp::on_delete_event));
           win->signal_hide().connect(sigc::bind<Gtk::Window *>(
                   sigc::mem_fun(*this,
                                 &BackgroundApp::on_hide_window), win));
@@ -328,6 +600,32 @@ namespace base  // shl::gtk::base
         m_update_win_queue.pop();
       }
     }
+    // -------------------------------------------------------------------------
+    // process_connect_timers
+    // -------------------------------------------------------------------------
+    void process_connect_timers()
+    {
+      std::lock_guard<std::mutex> lock(m_connect_timer_queue_mutex);
+      while (!m_connect_timer_queue.empty())
+      {
+        TimerData *timer = m_connect_timer_queue.front();
+        timer->connect();
+        m_connect_timer_queue.pop();
+      }
+    }
+    // -------------------------------------------------------------------------
+    // process_disconnect_timers
+    // -------------------------------------------------------------------------
+    void process_disconnect_timers()
+    {
+      std::lock_guard<std::mutex> lock(m_disconnect_timer_queue_mutex);
+      while (!m_disconnect_timer_queue.empty())
+      {
+        TimerData *timer = m_disconnect_timer_queue.front();
+        timer->disconnect();
+        m_disconnect_timer_queue.pop();
+      }
+    }
 
   private:
     // member variables --------------------------------------------------------
@@ -339,6 +637,11 @@ namespace base  // shl::gtk::base
     std::mutex m_update_win_queue_mutex;
     std::queue<BackgroundAppWindowInterface *> m_update_win_queue;
     //
+    std::mutex m_connect_timer_queue_mutex;
+    std::queue<TimerData *> m_connect_timer_queue;
+    std::mutex m_disconnect_timer_queue_mutex;
+    std::queue<TimerData *> m_disconnect_timer_queue;
+    //
     std::vector<BackgroundAppWindowInterface *> m_window_list;
     std::condition_variable m_window_cond;
     std::mutex  m_window_mutex;
@@ -349,7 +652,7 @@ namespace base  // shl::gtk::base
   };
 
   // ===========================================================================
-  //	BackgroundAppRunner class
+  //  BackgroundAppRunner class
   // ===========================================================================
   class BackgroundAppRunner
   {
@@ -391,14 +694,21 @@ namespace base  // shl::gtk::base
       m_app->wait_window_all_closed();
     }
     // -------------------------------------------------------------------------
+    // get_window_num
+    // -------------------------------------------------------------------------
+    size_t get_window_num()
+    {
+      std::lock_guard<std::mutex> lock(m_function_call_mutex);
+      if (m_app == nullptr)
+        return 0;
+      return m_app->get_window_num();
+    }
+    // -------------------------------------------------------------------------
     // is_window_close_all
     // -------------------------------------------------------------------------
     bool is_window_close_all()
     {
-      std::lock_guard<std::mutex> lock(m_function_call_mutex);
-      if (m_app == nullptr)
-        return true;
-      if (m_app->get_window_num() == 0)
+      if (get_window_num() == 0)
         return true;
       return false;
     }
@@ -438,6 +748,26 @@ namespace base  // shl::gtk::base
         return;
       m_app->post_update_window(in_interface);
     }
+    // -------------------------------------------------------------------------
+    // connect_timer
+    // -------------------------------------------------------------------------
+    void connect_timer(TimerData *inTimerData)
+    {
+      std::lock_guard<std::mutex> lock(m_function_call_mutex);
+      if (m_app == nullptr)
+        return;
+      m_app->post_connect_timer(inTimerData);
+    }
+    // -------------------------------------------------------------------------
+    // disconnect_timer
+    // -------------------------------------------------------------------------
+    void disconnect_timer(TimerData *inTimerData)
+    {
+      std::lock_guard<std::mutex> lock(m_function_call_mutex);
+      if (m_app == nullptr)
+        return;
+      m_app->post_disconnect_timer(inTimerData);
+    }
 
     // static functions --------------------------------------------------------
     // -------------------------------------------------------------------------
@@ -467,21 +797,21 @@ namespace base  // shl::gtk::base
     }
 
     // friend classes ----------------------------------------------------------
-    friend class Object;
-    friend class ImageWindow;
+    friend class WindowBase;
   };
 
   // ===========================================================================
-  //	Object class
+  //  WindowBase class
   // ===========================================================================
-  class Object : protected BackgroundAppWindowInterface
+  class WindowBase : private BackgroundAppWindowInterface
   {
   public:
     // -------------------------------------------------------------------------
-    // Object destructor
+    // WindowBase destructor
     // -------------------------------------------------------------------------
-    virtual ~Object()
+    virtual ~WindowBase()
     {
+      kill_timer(nullptr);  // stop and delete all timers (just in case)
       m_app_runner->delete_window(this);
     }
 
@@ -494,7 +824,7 @@ namespace base  // shl::gtk::base
      * @note This is a blocking function.
      *
      */
-    virtual void wait_window_closed()
+    void wait_window_closed()
     {
       back_app_wait_delete_window();
     }
@@ -509,7 +839,7 @@ namespace base  // shl::gtk::base
      *  - true : The window was closed
      *  - false : The window is not closed
      */
-    virtual bool is_window_closed()
+    bool is_window_closed()
     {
       return back_app_is_window_deleted();
     }
@@ -520,7 +850,7 @@ namespace base  // shl::gtk::base
      * Waits until all of the windows are closed.
      * @note The windows including opened by the other objects
      */
-    virtual void wait_window_close_all()
+    void wait_window_close_all()
     {
       m_app_runner->wait_window_all_closed();
     }
@@ -535,9 +865,22 @@ namespace base  // shl::gtk::base
      *  - true : The windows were all closed
      *  - false : The all of the windows are still not closed
      */
-    virtual bool is_window_close_all()
+    bool is_window_close_all()
     {
       return m_app_runner->is_window_close_all();
+    }
+    // -------------------------------------------------------------------------
+    // get_window_num
+    // -------------------------------------------------------------------------
+    /**
+     * Retrieves the number of opened windows.
+     * @note The windows including opened by the other objects
+     *
+     * @return the number of opened windows
+     */
+    size_t get_window_num()
+    {
+      return m_app_runner->get_window_num();
     }
     // -------------------------------------------------------------------------
     // show_window
@@ -548,12 +891,13 @@ namespace base  // shl::gtk::base
      *
      * @param in_title  The title of the window
      */
-    virtual void show_window(const char *in_title = nullptr)
+    void show_window(const char *in_title = nullptr)
     {
       if (back_app_get_window() != nullptr)
         return;
       m_app_runner->create_window(this, in_title);
       back_app_wait_new_window();
+      start_all_timers();
     }
     // -------------------------------------------------------------------------
     // update
@@ -563,29 +907,233 @@ namespace base  // shl::gtk::base
      * @note This function needs to be called when the content of the object is
      * updated
      */
-    virtual void update()
+    void update()
     {
       if (back_app_get_window() == nullptr)
         return;
       m_app_runner->update_window(this);
     }
+    // -------------------------------------------------------------------------
+    // get_user_event_queue()
+    // -------------------------------------------------------------------------
+    EventQueue *get_user_event_queue()
+    {
+      if (m_user_event_queue != nullptr)
+        return m_user_event_queue;
+      return get_user_global_queue();
+    }
+    // -------------------------------------------------------------------------
+    // push_update_event()
+    // -------------------------------------------------------------------------
+    void push_update_event(void *inSource, void (*in_func)(EventData *))
+    {
+      m_background_queue.push(inSource, in_func);
+    }
+    // -------------------------------------------------------------------------
+    // push_update_event()
+    // -------------------------------------------------------------------------
+    void push_update_event(EventData *in_update)
+    {
+      m_background_queue.push(in_update);
+    }
+    // -------------------------------------------------------------------------
+    // add_close_event_listener
+    // -------------------------------------------------------------------------
+    void add_close_event_listener(base::EventQueue *in_event_queue)
+    {
+      m_close_notify_list.push_back(in_event_queue);
+    }
+    // -------------------------------------------------------------------------
+    // connect_timer
+    // -------------------------------------------------------------------------
+    TimerData *add_timer(
+                  unsigned int in_interval_ms,
+                  void (*in_timer_event_func)(void *in_user_data) = nullptr,
+                  void *in_user_data = nullptr,
+                  base::EventQueue *in_user_event_queue = nullptr)
+    {
+      if (in_user_event_queue == nullptr)
+        in_user_event_queue = get_user_event_queue();
+      TimerData *timer;
+      timer = new TimerData(
+              in_interval_ms,
+              in_user_event_queue,
+              in_timer_event_func,
+              in_user_data);
+      m_timer_list.push_back(timer);
+      return timer;
+    }
+    // -------------------------------------------------------------------------
+    // kill_timer
+    // -------------------------------------------------------------------------
+    // [note]
+    // after calling this function, passed inTimeData will be no
+    // longer valid (the linked object will be deleted internally)
+    // specifying nullptr will remove all timers associated with this window
+    //
+    void kill_timer(TimerData *inTimerData = nullptr)
+    {
+      if (inTimerData == nullptr)
+        return;
+      
+      for (auto it = m_timer_list.begin(); it != m_timer_list.end(); it++)
+        if ((*it) == inTimerData || inTimerData == nullptr)
+        {
+          m_app_runner->disconnect_timer((*it));
+          delete (*it);
+          if (inTimerData != nullptr)
+          {
+            m_timer_list.erase(it);
+            break;
+          }
+        }
+      if (inTimerData == nullptr)
+        m_timer_list.clear();
+    }
 
   protected:
+    // Virtual Member functions --------------------------------------------------------
+    virtual Gtk::Window *create_window_object(const char *in_title) = 0;
+    virtual Gtk::Window *get_window_object() = 0;
+    virtual void delete_window_object() = 0;
+    virtual bool is_window_object_null() = 0;
+    virtual void update_window() = 0;
+    virtual const char *get_default_window_title() = 0;
+
     // -------------------------------------------------------------------------
-    // Object constructor
+    // WindowBase constructor
     // -------------------------------------------------------------------------
-    Object()
+    WindowBase(EventQueue *in_user_event_queue = nullptr) :
+      m_user_event_queue(in_user_event_queue)
     {
       m_app_runner = BackgroundAppRunner::get_runner();
     }
+    // Member functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // process_update_events()
+    // -------------------------------------------------------------------------
+    void process_update_events(bool in_last_only = false)
+    {
+      m_background_queue.process_events(in_last_only);
+    }
+    // -------------------------------------------------------------------------
+    // start_all_timers
+    // -------------------------------------------------------------------------
+    void start_all_timers()
+    {
+      for (auto it = m_timer_list.begin(); it != m_timer_list.end(); it++)
+        m_app_runner->connect_timer((*it));
+    }
 
   private:
+    // member variables --------------------------------------------------------
     BackgroundAppRunner *m_app_runner;
+    EventQueue  m_background_queue;
+    EventQueue  *m_user_event_queue;
+    std::condition_variable m_new_window_cond;
+    std::mutex  m_new_window_mutex;
+    std::condition_variable m_delete_window_cond;
+    std::mutex  m_delete_window_mutex;
+    std::vector<base::EventQueue *> m_close_notify_list;
+    std::vector<TimerData *>   m_timer_list;
+
+    // BackgroundAppWindowInterface functions ----------------------------------
+    // -------------------------------------------------------------------------
+    // back_app_create_window (called from the UI thread)
+    // -------------------------------------------------------------------------
+    Gtk::Window *back_app_create_window(const char *in_title) override
+    {
+      static int window_num = 0;
+      char buf[256];
+      if (in_title != nullptr)
+        if (*in_title == 0)
+          in_title = nullptr;
+      if (in_title == nullptr)
+      {
+        const char *title = get_default_window_title();
+        if (window_num == 0)
+          sprintf(buf, "%s", title);
+        else
+          sprintf(buf, "%s_%d", title, window_num);
+        in_title = buf;
+      }
+      Gtk::Window *window = create_window_object(in_title);
+      m_new_window_cond.notify_all();
+      window_num++;
+      return window;
+    }
+    // -------------------------------------------------------------------------
+    // back_app_wait_new_window (called from the UI thread)
+    // -------------------------------------------------------------------------
+    void back_app_wait_new_window() override
+    {
+      std::unique_lock<std::mutex> lock(m_new_window_mutex);
+      m_new_window_cond.wait(lock);
+    }
+    // -------------------------------------------------------------------------
+    // back_app_delete_request (called from the UI thread)
+    // -------------------------------------------------------------------------
+    Gtk::Window *back_app_get_window() override
+    {
+      return get_window_object();
+    }
+    // -------------------------------------------------------------------------
+    // back_app_delete_request (called from the UI thread)
+    // -------------------------------------------------------------------------
+    bool back_app_delete_request() override
+    {
+      return false; // by returning true, we can cancel window close
+    }
+    // -------------------------------------------------------------------------
+    // back_app_delete_window (called from the UI thread)
+    // -------------------------------------------------------------------------
+    void back_app_delete_window() override
+    {
+      // we need to disconnect all timers first
+      for (auto it = m_timer_list.begin(); it != m_timer_list.end(); it++)
+        (*it)->disconnect();
+      delete_window_object();
+      m_delete_window_cond.notify_all();
+      // We need to notify all event queues to un-block event queue's wait()
+      for (auto it = m_close_notify_list.begin(); it != m_close_notify_list.end(); it++)
+        (*it)->notify();
+    }
+    // -------------------------------------------------------------------------
+    // back_app_is_window_deleted (called from the UI thread)
+    // -------------------------------------------------------------------------
+    bool back_app_is_window_deleted() override
+    {
+      return is_window_object_null();
+    }
+    // -------------------------------------------------------------------------
+    // back_app_wait_delete_window (called from the UI thread)
+    // -------------------------------------------------------------------------
+    void back_app_wait_delete_window() override
+    {
+      std::unique_lock<std::mutex> lock(m_delete_window_mutex);
+      m_delete_window_cond.wait(lock);
+    }
+    // -------------------------------------------------------------------------
+    // back_app_update_window
+    // -------------------------------------------------------------------------
+    void back_app_update_window() override
+    {
+      update_window();
+    }
+    // static functions --------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // get_user_global_queue
+    // -------------------------------------------------------------------------
+    static EventQueue *get_user_global_queue()
+    {
+      static EventQueue s_user_global_queue;
+      return &s_user_global_queue;
+    }
   };
 } // namespace shl::gtk::base
 #else
   // If another shl file is already included, we need to is_valid the base gtk class version
-  #if SHL_BASE_GTK_CLASS_VERSION != SHL_IMAGE_WINDOW_GTK_BASE_VERSION
+  #if SHL_BASE_GTK_CLASS_VERSION != SHL_CONTROLS_WINDOW_GTK_BASE_VERSION
     #error invalid shl base class version (There is a version inconsistency between included shl files)
   #endif
   //
@@ -593,6 +1141,7 @@ namespace base  // shl::gtk::base
 
 // Namespace -------------------------------------------------------------------
 class ImageWindow;  // This is for the friend class definition
+
 namespace image     // shl::gtk::image
 {
   // ===========================================================================
@@ -1228,7 +1777,7 @@ namespace image     // shl::gtk::image
   };
 
   // ===========================================================================
-  //	PerfCounter class
+  //  PerfCounter class
   // ===========================================================================
   class PerfCounter
   {
@@ -1237,9 +1786,7 @@ namespace image     // shl::gtk::image
     {
       m_start_count = 0;
     }
-    virtual ~PerfCounter()
-    {
-    }
+    virtual ~PerfCounter() = default;
     uint64_t  get_count()
     {
       struct timespec tp;
@@ -1266,7 +1813,7 @@ namespace image     // shl::gtk::image
   };
 
   // ===========================================================================
-  //	Data class
+  //  Data class
   // ===========================================================================
   class Data
   {
@@ -1568,7 +2115,7 @@ namespace image     // shl::gtk::image
     /**
      * Retries the height of the image buffer.
      *
-     * @return The hegight of the image buffer
+     * @return The height of the image buffer
      */
     [[nodiscard]] int get_height() const
     {
@@ -1686,7 +2233,7 @@ namespace image     // shl::gtk::image
   };
 
   // ===========================================================================
-  //	UpdateHandlerInterface class
+  //  UpdateHandlerInterface class
   // ===========================================================================
   class UpdateHandlerInterface
   {
@@ -1831,7 +2378,7 @@ namespace image     // shl::gtk::image
     // -------------------------------------------------------------------------
     // get_zoom_best_fit
     // -------------------------------------------------------------------------
-    bool get_zoom_best_fit()
+    bool get_zoom_best_fit() const
     {
       return m_zoom_best_fit;
     }
@@ -1952,7 +2499,7 @@ namespace image     // shl::gtk::image
       else
       {
         double v;
-        v = m_fps_counter.elapsed_time();
+        v = (double )m_fps_counter.elapsed_time();
         m_fps_counter.start_count();
         if (v != 0)
           v = 1000000000.0 / v;
@@ -2363,10 +2910,10 @@ namespace image     // shl::gtk::image
     {
       uint8_t *image = m_image_data_ptr->get_image();
       size_t  size = m_image_data_ptr->get_buffer_size();
-      if (image == nullptr || size == 0 || in_filename.size() == 0)
+      if (image == nullptr || size == 0 || in_filename.empty())
         return false;
       FILE *fp = fopen(in_filename.c_str(), "wb");
-      if (fp == NULL)
+      if (fp == nullptr)
         return false;
       fwrite(image, sizeof(uint8_t), size, fp);
       fclose(fp);
@@ -2530,7 +3077,7 @@ namespace image     // shl::gtk::image
   };
 
   // ---------------------------------------------------------------------------
-  //	MainWindow class
+  //  MainWindow class
   // ---------------------------------------------------------------------------
   class MainWindow : public Gtk::Window, protected UpdateHandlerInterface
   {
@@ -2588,7 +3135,7 @@ namespace image     // shl::gtk::image
         return false;
       Glib::ustring text = m_zoom_entry.get_text();
       char *end_ptr;
-      int value = strtol(text.c_str(), &end_ptr, 0);
+      int value = (int )strtol(text.c_str(), &end_ptr, 0);
       if (value == 0)
         value = 1;
       m_image_view.set_zoom_best_fit(false);
@@ -2671,7 +3218,7 @@ namespace image     // shl::gtk::image
       Gtk::AboutDialog  dialog;
       dialog.set_program_name("ImageWindows-GTK");
       dialog.set_version(SHL_IMAGE_WINDOW_GTK_BASE_VERSION);
-      dialog.set_copyright("Copyright (c) 2021-2022 Dairoku Sekiguchi");
+      dialog.set_copyright("Copyright (c) 2021-2024 Dairoku Sekiguchi");
       dialog.set_transient_for(*this);
       dialog.run();
     }
@@ -2744,7 +3291,7 @@ namespace image     // shl::gtk::image
     // -------------------------------------------------------------------------
     // view_zoom_updated
     // -------------------------------------------------------------------------
-    void view_zoom_updated(double in_zoom, bool in_best_fit)
+    void view_zoom_updated(double in_zoom, bool in_best_fit) override
     {
       char buf[256];
       sprintf(buf, "%d%%", (int )(in_zoom * 100.0));
@@ -2765,7 +3312,7 @@ namespace image     // shl::gtk::image
     // -------------------------------------------------------------------------
     void view_image_info_updated(bool in_is_valid_image_info,
                                 int in_image_width, int in_image_height,
-                                bool in_is_image_mono)
+                                bool in_is_image_mono) override
     {
       if (m_image_view.get_image_data() == nullptr)
         return;
@@ -2778,7 +3325,7 @@ namespace image     // shl::gtk::image
     void view_mouse_info_updated(bool in_is_valid_mouse_info,
                                 int in_mouse_x, int in_mouse_y,
                                 bool in_is_mouse_mono,
-                                int in_mouse_r, int in_mouse_g, int in_mouse_b)
+                                int in_mouse_r, int in_mouse_g, int in_mouse_b) override
     {
       update_status_center(in_is_valid_mouse_info,
                            in_mouse_x, in_mouse_y,
@@ -2789,7 +3336,7 @@ namespace image     // shl::gtk::image
     // view_frame_info_updated
     // -------------------------------------------------------------------------
     void view_frame_info_updated(bool in_is_valid_frame_info,
-                                unsigned in_frame_count, double in_fps)
+                                unsigned in_frame_count, double in_fps) override
     {
       update_status_right(in_is_valid_frame_info, in_frame_count, in_fps);
     }
@@ -3128,11 +3675,11 @@ namespace image     // shl::gtk::image
 };
 
   // ---------------------------------------------------------------------------
-  //	ImageWindow class
+  //  ImageWindow class
   // ---------------------------------------------------------------------------
   class ImageWindow :
       public shl::gtk::image::Data,
-      public shl::gtk::base::Object
+      public shl::gtk::base::WindowBase
   {
   public:
     // constructors and destructor ---------------------------------------------
@@ -3154,88 +3701,59 @@ namespace image     // shl::gtk::image
   protected:
     // Member functions --------------------------------------------------------
     // -------------------------------------------------------------------------
-    // back_app_create_window
+    // create_window_object
     // -------------------------------------------------------------------------
-    Gtk::Window *back_app_create_window(const char *in_title) override
+    Gtk::Window *create_window_object(const char *in_title) override
     {
-      static int window_num = 0;
-      char buf[256];
-      if (in_title != nullptr)
-        if (*in_title == 0)
-          in_title = nullptr;
-      if (in_title == nullptr)
-      {
-        if (window_num == 0)
-          sprintf(buf, "ImageWindow");
-        else
-          sprintf(buf, "ImageWindow_%d", window_num);
-        in_title = buf;
-      }
       m_window = new shl::gtk::image::MainWindow(this, in_title);
-      m_new_window_cond.notify_all();
-      window_num++;
       return m_window;
     }
     // -------------------------------------------------------------------------
-    // back_app_wait_new_window
+    // get_window_object
     // -------------------------------------------------------------------------
-    void back_app_wait_new_window() override
-    {
-      std::unique_lock<std::mutex> lock(m_new_window_mutex);
-      m_new_window_cond.wait(lock);
-    }
-    // -------------------------------------------------------------------------
-    // back_app_get_window
-    // -------------------------------------------------------------------------
-    Gtk::Window *back_app_get_window() override
+    Gtk::Window *get_window_object() override
     {
       return m_window;
     }
     // -------------------------------------------------------------------------
-    // back_app_delete_window
+    // delete_window_object
     // -------------------------------------------------------------------------
-    void back_app_delete_window() override
+    void delete_window_object() override
     {
       delete m_window;
       m_window = nullptr;
-      m_delete_window_cond.notify_all();
     }
     // -------------------------------------------------------------------------
-    // back_app_is_window_deleted
+    // is_window_object_null
     // -------------------------------------------------------------------------
-    bool back_app_is_window_deleted() override
+    bool is_window_object_null() override
     {
       if (m_window == nullptr)
         return true;
       return false;
     }
     // -------------------------------------------------------------------------
-    // back_app_wait_delete_window
+    // get_default_window_title
     // -------------------------------------------------------------------------
-    void back_app_wait_delete_window() override
+    const char *get_default_window_title() override
     {
-      std::unique_lock<std::mutex> lock(m_delete_window_mutex);
-      m_delete_window_cond.wait(lock);
+      return "ImageWindow";
     }
     // -------------------------------------------------------------------------
-    // back_app_update_window
+    // update_window
     // -------------------------------------------------------------------------
-    void back_app_update_window() override
+    void update_window() override
     {
       if (m_window == nullptr)
         return;
+      // The following will call WindowData::update() at the end of the call chain
       mark_as_modified();
       m_window->update();
     }
 
   private:
     shl::gtk::image::MainWindow *m_window;
-    std::condition_variable m_new_window_cond;
-    std::mutex  m_new_window_mutex;
-    std::condition_variable m_delete_window_cond;
-    std::mutex  m_delete_window_mutex;
   };
-}
 } // namespace shl::gtk
 
-#endif	// #ifdef IMAGE_WINDOW_GTK_H_
+#endif  // #ifdef IMAGE_WINDOW_GTK_H_
